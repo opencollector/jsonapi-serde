@@ -1,0 +1,9 @@
+-e .[sqlalchemy]
+black
+flake8
+mypy
+pytest
+isort
+pytest-cov
+sphinx
+sphinx-rtd-theme
