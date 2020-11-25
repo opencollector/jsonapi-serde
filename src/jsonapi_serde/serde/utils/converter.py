@@ -654,7 +654,11 @@ class PyTypedJsonicDataConverter:
                     continue
                 k = _k
             if k not in value:
-                if is_optional(field.type):
+                if (
+                    is_optional(field.type) or
+                    field.default is not dataclasses.MISSING or
+                    field.default_factory is not dataclasses.MISSING  # type: ignore
+                ):
                     continue
                 if field.default is not dataclasses.MISSING:
                     jv_pair = (field.default, 1.0)

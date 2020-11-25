@@ -35,21 +35,6 @@ def test_basic(target):
         },
     )
 
-    print(
-        SingletonDocumentRepr(
-            data=ResourceRepr(
-                type="foos",
-                id="1",
-                attributes=(
-                    ("a", 1),
-                    ("b", 2),
-                    ("c", 3),
-                ),
-                _source_=JSONPointer("/data"),
-            ),
-            _source_=JSONPointer("/"),
-        )
-    )
     assert result == SingletonDocumentRepr(
         data=ResourceRepr(
             type="foos",
@@ -144,42 +129,34 @@ def test_basic(target):
     )
 
 
+def test_no_attributes(target):
+    deser = target()
+
+    result = deser(
+        SingletonDocumentRepr,
+        {
+            "data": {
+                "type": "foos",
+                "id": "1",
+            },
+        },
+    )
+
+    assert result == SingletonDocumentRepr(
+        data=ResourceRepr(
+            type="foos",
+            id="1",
+            attributes=(),
+            _source_=JSONPointer("/data"),
+        ),
+        _source_=JSONPointer("/"),
+    )
+
+
 def test_validation_error(target):
     from ..exceptions import DeserializationError
 
     deser = target()
-
-    with pytest.raises(DeserializationError):
-        deser(
-            SingletonDocumentRepr,
-            {
-                "links": {
-                    "self": "/foos/1",
-                },
-                "data": {
-                    "type": "foos",
-                    "id": "1",
-                    "relationships": {
-                        "items": {
-                            "links": {
-                                "self": "/foos/1/relationships/bars/1",
-                                "related": "/bars/1",
-                            },
-                            "data": [
-                                {
-                                    "type": "bars",
-                                    "id": "1",
-                                },
-                                {
-                                    "type": "bars",
-                                    "id": "2",
-                                },
-                            ],
-                        },
-                    },
-                },
-            },
-        )
 
     with pytest.raises(DeserializationError):
         deser(

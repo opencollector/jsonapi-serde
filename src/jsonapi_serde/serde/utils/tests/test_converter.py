@@ -235,22 +235,32 @@ def test_pytyped_jsonic_data_converter_nested_mappings(expected, input):
 class Foo:
     a: int
     b: typing.Optional[int] = 999
+    c: str = "abc"
+    d: typing.List[typing.Any] = dataclasses.field(default_factory=list)
 
 
 @pytest.mark.parametrize(
     ("expected", "input"),
     [
         (
-            Foo(a=12, b=999),
+            Foo(a=12, b=999, c="abc", d=[]),
             (Foo, {"a": 12.123}),
         ),
         (
-            Foo(a=12, b=None),
+            Foo(a=12, b=None, c="abc", d=[]),
             (Foo, {"a": 12.123, "b": None}),
         ),
         (
-            Foo(a=12, b=456),
+            Foo(a=12, b=456, c="abc", d=[]),
             (Foo, {"a": 12, "b": 456}),
+        ),
+        (
+            Foo(a=1, b=999, c="def", d=[]),
+            (Foo, {"a": 1, "c": "def"}),
+        ),
+        (
+            Foo(a=1, b=999, c="abc", d=[1]),
+            (Foo, {"a": 1, "d": [1]}),
         ),
     ],
 )

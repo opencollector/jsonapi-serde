@@ -40,6 +40,9 @@ class OurErrorCollectingConverterContext(ErrorCollectingConverterContext):
         self.require_complete_set_of_attributes = require_complete_set_of_attributes
 
 
+EMPTY_ATTRIBUTES_DICT: typing.Mapping[str, JSONValue] = {}
+
+
 class ReprDeserializer:
     _converter: PyTypedJsonicDataConverter
     _querier: typing.Optional[DescriptorQuerier]
@@ -62,7 +65,7 @@ class ReprDeserializer:
             return (None, math.inf)
         try:
             type_ = value["type"]
-            attributes_ = value["attributes"]
+            attributes_ = value.get("attributes", EMPTY_ATTRIBUTES_DICT)
             attributes: typing.MutableSequence[typing.Tuple[str, AttributeValue]] = []
             v: JSONValue
             _pointer = pointer / "attributes"

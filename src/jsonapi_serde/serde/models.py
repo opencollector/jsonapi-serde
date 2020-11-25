@@ -157,8 +157,8 @@ class ResourceRepr(NodeRepr):
 
     type: str  # type: ignore
     id: typing.Optional[str]  # type: ignore
-    attributes: AttributesRepr  # type: ignore
-    relationships: RelationshipsRepr  # type: ignore
+    attributes: AttributesRepr = dataclasses.field(default_factory=AttributesRepr)  # type: ignore
+    relationships: RelationshipsRepr = dataclasses.field(default_factory=RelationshipsRepr)  # type: ignore
 
     def __getitem__(self, name):
         # FIXME
