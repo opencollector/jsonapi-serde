@@ -233,7 +233,7 @@ class DocumentReprBase(NodeRepr):
         self,
         *,
         jsonapi: typing.Optional[typing.Dict[str, typing.Any]] = None,
-        errors: typing.Sequence[ErrorRepr] = (),
+        errors: typing.Optional[typing.Sequence[ErrorRepr]] = None,
         included: typing.Sequence[ResourceRepr] = (),
         links: typing.Optional[LinksRepr] = None,
         meta: typing.Optional[typing.Dict[str, typing.Any]] = None,
@@ -241,15 +241,15 @@ class DocumentReprBase(NodeRepr):
     ):
         """
         :param Optional[Dict[str, Any]] jsonapi:
-        :param Sequence[ErrorRepr]: a sequence of :py:class:`ErrorRepr`.
+        :param Optional[Sequence[ErrorRepr]]: a sequence of :py:class:`ErrorRepr`.
         :param Sequence[ResourceRepr]: a sequence of :py:class:`ResourceRepr`.
         :param Optional[LinksRepr] links: a value for ``links`` property.
         :param Optional[Dict[str, Any]] meta: a dictionary containing user-defined information.
-        :param Union[JSONPointer, str, None] source: an object that describes the source of the node.
+        :param Union[JSONPointer, str, None] _source_: an object that describes the source of the node.
         """
         super().__init__(links=links, meta=meta, _source_=_source_)
         self.jsonapi = jsonapi if jsonapi is not None else {}
-        self.errors = errors
+        self.errors = errors or ()
         self.included = included
 
 
@@ -257,8 +257,37 @@ class DocumentReprBase(NodeRepr):
 class SingletonDocumentRepr(DocumentReprBase):
     data: typing.Optional[ResourceRepr] = None
 
-    def __init__(self, data: typing.Optional[ResourceRepr], **kwargs):
-        super().__init__(**kwargs)
+    def __init__(
+        self,
+        jsonapi: typing.Optional[typing.Dict[str, typing.Any]] = None,
+        errors: typing.Optional[typing.Sequence[ErrorRepr]] = None,
+        included: typing.Sequence[ResourceRepr] = (),
+        links: typing.Optional[LinksRepr] = None,
+        meta: typing.Optional[typing.Dict[str, typing.Any]] = None,
+        data: typing.Optional[ResourceRepr] = None,
+        _source_: Source = None,
+    ):
+        """
+        Either errors, meta, or data must take a non-None value.
+
+        :param Optional[Dict[str, Any]] jsonapi:
+        :param Optional[Sequence[ErrorRepr]]: a sequence of :py:class:`ErrorRepr`.
+        :param Sequence[ResourceRepr]: a sequence of :py:class:`ResourceRepr`.
+        :param Optional[LinksRepr] links: a value for ``links`` property.
+        :param Optional[Dict[str, Any]] meta: a dictionary containing user-defined information.
+        :param Optional[ResourceRepr] data: a ResourceRepr object.
+        :param Union[JSONPointer, str, None] _source_: an object that describes the source of the node.
+        """
+        if data is None and errors is None and meta is None:
+            raise ValueError("either data, errors, or meta must be specified")
+        super().__init__(
+            jsonapi=jsonapi,
+            errors=errors,
+            included=included,
+            links=links,
+            meta=meta,
+            _source_=_source_,
+        )
         self.data = data
 
 
@@ -266,6 +295,35 @@ class SingletonDocumentRepr(DocumentReprBase):
 class CollectionDocumentRepr(DocumentReprBase):
     data: typing.Sequence[ResourceRepr] = ()
 
-    def __init__(self, data: typing.Sequence[ResourceRepr], **kwargs):
-        super().__init__(**kwargs)
-        self.data = data
+    def __init__(
+        self,
+        jsonapi: typing.Optional[typing.Dict[str, typing.Any]] = None,
+        errors: typing.Optional[typing.Sequence[ErrorRepr]] = None,
+        included: typing.Sequence[ResourceRepr] = (),
+        links: typing.Optional[LinksRepr] = None,
+        meta: typing.Optional[typing.Dict[str, typing.Any]] = None,
+        data: typing.Optional[typing.Sequence[ResourceRepr]] = None,
+        _source_: Source = None,
+    ):
+        """
+        Either errors, meta, or data must take a non-None value.
+
+        :param Optional[Dict[str, Any]] jsonapi:
+        :param Optional[Sequence[ErrorRepr]]: a sequence of :py:class:`ErrorRepr`.
+        :param Sequence[ResourceRepr]: a sequence of :py:class:`ResourceRepr`.
+        :param Optional[LinksRepr] links: a value for ``links`` property.
+        :param Optional[Dict[str, Any]] meta: a dictionary containing user-defined information.
+        :param Optional[Sequence[ResourceRepr]] data: a ResourceRepr object.
+        :param Union[JSONPointer, str, None] _source_: an object that describes the source of the node.
+        """
+        if data is None and errors is None and meta is None:
+            raise ValueError("either data, errors, or meta must be specified")
+        super().__init__(
+            jsonapi=jsonapi,
+            errors=errors,
+            included=included,
+            links=links,
+            meta=meta,
+            _source_=_source_,
+        )
+        self.data = data or ()

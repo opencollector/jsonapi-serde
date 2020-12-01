@@ -161,6 +161,12 @@ def test_validation_error(target):
     with pytest.raises(DeserializationError):
         deser(
             SingletonDocumentRepr,
+            {},
+        )
+
+    with pytest.raises(DeserializationError):
+        deser(
+            SingletonDocumentRepr,
             {
                 "links": {
                     "self": "/foos/1",

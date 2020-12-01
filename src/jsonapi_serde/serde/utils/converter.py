@@ -655,9 +655,8 @@ class PyTypedJsonicDataConverter:
                 k = _k
             if k not in value:
                 if (
-                    is_optional(field.type) or
-                    field.default is not dataclasses.MISSING or
-                    field.default_factory is not dataclasses.MISSING  # type: ignore
+                    field.default is not dataclasses.MISSING
+                    or field.default_factory is not dataclasses.MISSING  # type: ignore
                 ):
                     continue
                 if field.default is not dataclasses.MISSING:
@@ -678,10 +677,14 @@ class PyTypedJsonicDataConverter:
                 jv_pair = self._convert(ctx, pointer / k, field.type, value[k])
             attrs[n] = jv_pair[0]
             confidence *= jv_pair[1]
-        return (
-            typing.cast(typing.Callable, typ)(**attrs),
-            confidence ** (1 / float(len(attrs))) if attrs else 1.0,
-        )
+        try:
+            return (
+                typing.cast(typing.Callable, typ)(**attrs),
+                confidence ** (1 / float(len(attrs))) if attrs else 1.0,
+            )
+        except ValueError as e:
+            ctx.validation_error_occurred(JsonicDataValidationError(pointer, str(e)))
+            return (None, math.inf)
 
     def _convert_inner(
         self, ctx: ConverterContext, pointer: JSONPointer, typ: JsonicType, value: JSONValue
