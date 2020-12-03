@@ -140,6 +140,7 @@ class Declarative:
         self,
         session: orm.Session,
         serde: ResourceRepr,
+        select_attribute: typing.Optional[typing.Callable[[AttributeMapping], bool]] = None,
         select_relationship: typing.Optional[typing.Callable[[RelationshipMapping], bool]] = None,
     ) -> typing.Any:
         """
@@ -151,7 +152,7 @@ class Declarative:
         :return: An instance of SQLAlchemy-instrumented class that corresponds to the given resource representation.
         """
         mctx = DefaultMutationContextImpl(session)
-        return self.mapper_ctx.create_from_serde(mctx, serde, select_relationship)
+        return self.mapper_ctx.create_from_serde(mctx, serde, select_attribute, select_relationship)
 
     Tmc = typing.TypeVar("Tmc")
 
@@ -160,6 +161,7 @@ class Declarative:
         session: orm.Session,
         target: Tmc,
         serde: ResourceRepr,
+        select_attribute: typing.Optional[typing.Callable[[AttributeMapping], bool]] = None,
         select_relationship: typing.Optional[typing.Callable[[RelationshipMapping], bool]] = None,
     ) -> Tmc:
         """
@@ -168,11 +170,14 @@ class Declarative:
         :param sqlalchemy.orm.session.Session session: SQLAlchemy session to use to fetch related objects.
         :param Any target: The target object which jsonapi-serde updates with the serde representation.
         :param jsonapi_serde.serde.models.ResourceRepr serde: A ResourceRepr object with which jsonapi-serde updates the native object.
+        :param callable select_attribute: An optional callable that determines if the given attribute is included.
         :param callable select_relationship: An optional callable that determines if the given relationship is included.
         :return: The updated object
         """
         mctx = DefaultMutationContextImpl(session)
-        return self.mapper_ctx.update_with_serde(mctx, target, serde, select_relationship)
+        return self.mapper_ctx.update_with_serde(
+            mctx, target, serde, select_attribute, select_relationship
+        )
 
     Tss = typing.TypeVar("Tss")
 

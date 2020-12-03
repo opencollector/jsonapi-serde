@@ -23,7 +23,11 @@ from ..models import (
     ResourceToManyRelationshipDescriptor,
     ResourceToOneRelationshipDescriptor,
 )
-from ..serde.builders import ResourceReprBuilder
+from ..serde.builders import (
+    ResourceReprBuilder,
+    ToManyRelDocumentBuilder,
+    ToOneRelDocumentBuilder,
+)
 from ..serde.models import (
     AttributeValue,
     LinkageRepr,
@@ -31,6 +35,8 @@ from ..serde.models import (
     ResourceIdRepr,
     ResourceRepr,
     Source,
+    ToManyRelDocumentRepr,
+    ToOneRelDocumentRepr,
 )
 
 
@@ -435,12 +441,14 @@ class TestMapper:
             resource_descr,
             native_descr,
             attribute_mappings=[
-                ToOneAttributeMapping[Foo](ra, na, *identity_mapping_pair)
-                for ra, na in zip(resource_descr.attributes, native_descr.attributes)
+                ToOneAttributeMapping[Foo](
+                    resource_descr.attributes[na.name], na, *identity_mapping_pair
+                )
+                for na in native_descr.attributes
             ],
             relationship_mappings=[
-                RelationshipMapping(rd, nd)
-                for rd, nd in zip(resource_descr.relationships, native_descr.relationships)
+                RelationshipMapping(resource_descr.relationships[nr.name], nr)
+                for nr in native_descr.relationships
             ],
         )
 
@@ -482,7 +490,12 @@ class TestMapper:
     def dummy_to_native_context(
         self, bar_mapper, bar_resource_descr, baz_mapper, baz_resource_descr
     ):
-        from ..mapper import Mapper, RelationshipMapping, ToNativeContext
+        from ..mapper import (
+            AttributeMapping,
+            Mapper,
+            RelationshipMapping,
+            ToNativeContext,
+        )
 
         class DummyToNativeContext(ToNativeContext):
             def query_mapper_by_serde(self, descr: ResourceDescriptor) -> Mapper:
@@ -500,6 +513,9 @@ class TestMapper:
                     return baz_resource_descr
                 else:
                     raise AssertionError()
+
+            def select_attribute(self, mapping: AttributeMapping):
+                return True
 
             def select_relationship(self, mapping: RelationshipMapping) -> bool:
                 return True
@@ -871,6 +887,74 @@ class TestMapper:
                             ),
                         ),
                     ),
+                ),
+            ),
+        )
+
+    def test_build_serde_to_one_relationship(self, target, dummy_to_serde_context):
+        builder = ToOneRelDocumentBuilder()
+        native = Foo(
+            a="1",
+            b=2,
+            c=3,
+            id="1",
+            bar=Bar(
+                d="1",
+                e=2,
+                id="1",
+            ),
+        )
+        dummy_serde_builder_context = mock.Mock()
+        target.build_serde_to_one_relationship(
+            dummy_to_serde_context(lambda _: True),
+            dummy_serde_builder_context,
+            builder,
+            native,
+            target.get_relationship_mapping_by_serde_name(None, "bar"),
+        )
+        assert builder() == ToOneRelDocumentRepr(
+            links=LinksRepr(
+                self_="/foo/1/@bar/1",
+            ),
+            data=ResourceIdRepr(
+                type="bar",
+                id="1",
+            ),
+        )
+
+    def test_build_serde_to_many_relationship(self, target, dummy_to_serde_context):
+        builder = ToManyRelDocumentBuilder()
+        native = Foo(
+            a="1",
+            b=2,
+            c=3,
+            id="1",
+            bazs=[
+                Baz(f=1, g="2", id="1"),
+                Baz(f=3, g="4", id="2"),
+            ],
+        )
+        dummy_serde_builder_context = mock.Mock()
+        target.build_serde_to_many_relationship(
+            dummy_to_serde_context(lambda _: True),
+            dummy_serde_builder_context,
+            builder,
+            native,
+            target.get_relationship_mapping_by_serde_name(None, "bazs"),
+        )
+        assert builder() == ToManyRelDocumentRepr(
+            links=LinksRepr(
+                self_="/foo/1/@baz?page=0",
+                next="/foo/1/@baz?page=1",
+            ),
+            data=(
+                ResourceIdRepr(
+                    type="baz",
+                    id="1",
+                ),
+                ResourceIdRepr(
+                    type="baz",
+                    id="2",
                 ),
             ),
         )

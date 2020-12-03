@@ -306,13 +306,17 @@ class TestQuerying:
             foo_native_descr,
             attribute_mappings=[
                 ToOneAttributeMapping[Foo](
-                    ra, na, to_serde_identity_mapping, to_native_identity_mapping
+                    foo_resource_descr.attributes[na.name],
+                    na,
+                    to_serde_identity_mapping,
+                    to_native_identity_mapping,
                 )
-                for ra, na in zip(foo_resource_descr.attributes, foo_native_descr.attributes)
+                for na in foo_native_descr.attributes
+                if na.name in foo_resource_descr.attributes
             ],
             relationship_mappings=[
-                RelationshipMapping(rd, nd)
-                for rd, nd in zip(foo_resource_descr.relationships, foo_native_descr.relationships)
+                RelationshipMapping(foo_resource_descr.relationships[nr.name], nr)
+                for nr in foo_native_descr.relationships
             ],
         )
 
@@ -324,13 +328,17 @@ class TestQuerying:
             bar_native_descr,
             attribute_mappings=[
                 ToOneAttributeMapping[Bar](
-                    ra, na, to_serde_identity_mapping, to_native_identity_mapping
+                    bar_resource_descr.attributes[na.name],
+                    na,
+                    to_serde_identity_mapping,
+                    to_native_identity_mapping,
                 )
-                for ra, na in zip(bar_resource_descr.attributes, bar_native_descr.attributes)
+                for na in bar_native_descr.attributes
+                if na.name in bar_resource_descr.attributes
             ],
             relationship_mappings=[
-                RelationshipMapping(rd, nd)
-                for rd, nd in zip(bar_resource_descr.relationships, bar_native_descr.relationships)
+                RelationshipMapping(bar_resource_descr.relationships[nr.name], nr)
+                for nr in bar_native_descr.relationships
             ],
         )
 
@@ -342,13 +350,17 @@ class TestQuerying:
             baz_native_descr,
             attribute_mappings=[
                 ToOneAttributeMapping[Baz](
-                    ra, na, to_serde_identity_mapping, to_native_identity_mapping
+                    baz_resource_descr.attributes[na.name],
+                    na,
+                    to_serde_identity_mapping,
+                    to_native_identity_mapping,
                 )
-                for ra, na in zip(baz_resource_descr.attributes, baz_native_descr.attributes)
+                for na in baz_native_descr.attributes
+                if na.name in baz_resource_descr.attributes
             ],
             relationship_mappings=[
-                RelationshipMapping(rd, nd)
-                for rd, nd in zip(baz_resource_descr.relationships, baz_native_descr.relationships)
+                RelationshipMapping(baz_resource_descr.relationship[nr.name], nr)
+                for nr in baz_native_descr.relationships
             ],
         )
 

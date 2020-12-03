@@ -16,6 +16,7 @@ from .interfaces import (  # noqa: F401
     NativeRelationshipDescriptor,
     NativeToManyRelationshipBuilder,
     NativeToManyRelationshipDescriptor,
+    NativeToOneRelationshipBuilder,
     NativeToOneRelationshipDescriptor,
     PaginatedEndpoint,
 )
@@ -32,10 +33,13 @@ from .serde.builders import (
     ResourceIdReprBuilder,
     ResourceReprBuilder,
     SingletonDocumentBuilder,
+    ToManyRelDocumentBuilder,
+    ToManyRelReprBuilder,
+    ToOneRelDocumentBuilder,
+    ToOneRelReprBuilder,
 )
 from .serde.models import (
     AttributeValue,
-    LinkageRepr,
     LinksRepr,
     ResourceIdRepr,
     ResourceRepr,
@@ -88,6 +92,10 @@ class ToSerdeContext(metaclass=abc.ABCMeta):
 
 class ToNativeContext(metaclass=abc.ABCMeta):
     @abc.abstractmethod
+    def select_attribute(self, mapping: "AttributeMapping") -> bool:
+        ...  # pragma: nocover
+
+    @abc.abstractmethod
     def select_relationship(self, mapping: "RelationshipMapping") -> bool:
         ...  # pragma: nocover
 
@@ -118,6 +126,14 @@ class AttributeMapping(typing.Generic[Ta0], metaclass=abc.ABCMeta):
         return self
 
     @abc.abstractmethod
+    def serde_side_descrs(self) -> typing.Iterable[ResourceAttributeDescriptor]:
+        ...  # pragma: nocover
+
+    @abc.abstractmethod
+    def native_side_descrs(self) -> typing.Iterable[NativeAttributeDescriptor]:
+        ...  # pragma: nocover
+
+    @abc.abstractmethod
     def to_serde(self, ctx: ToSerdeContext, blob: Ta0, builder: ResourceReprBuilder) -> None:
         ...  # pragma: nocover
 
@@ -134,6 +150,12 @@ class ToOneAttributeMapping(AttributeMapping[Ta1], typing.Generic[Ta1]):
     native_side: NativeAttributeDescriptor
     to_serde_factory: typing.Callable[[ToSerdeContext, typing.Any], AttributeValue]
     to_native_factory: typing.Callable[[ToNativeContext, Source, AttributeValue], typing.Any]
+
+    def serde_side_descrs(self) -> typing.Iterable[ResourceAttributeDescriptor]:
+        return [self.serde_side]
+
+    def native_side_descrs(self) -> typing.Iterable[NativeAttributeDescriptor]:
+        return [self.native_side]
 
     def to_serde(self, ctx: ToSerdeContext, blob: Ta0, builder: ResourceReprBuilder) -> None:
         builder.add_attribute(
@@ -179,6 +201,12 @@ class ToManyAttributeMapping(AttributeMapping[Ta2], typing.Generic[Ta2]):
     to_native_factory: typing.Callable[
         [ToNativeContext, Source, AttributeValue], typing.Sequence[typing.Any]
     ]
+
+    def serde_side_descrs(self) -> typing.Iterable[ResourceAttributeDescriptor]:
+        return [self.serde_side]
+
+    def native_side_descrs(self) -> typing.Iterable[NativeAttributeDescriptor]:
+        return self.native_side
 
     def to_serde(self, ctx: ToSerdeContext, blob: Ta0, builder: ResourceReprBuilder) -> None:
         builder.add_attribute(
@@ -232,6 +260,12 @@ class ManyToOneAttributeMapping(AttributeMapping[Ta3], typing.Generic[Ta3]):
     to_native_factory: typing.Callable[
         [ToNativeContext, typing.Sequence[Source], typing.Sequence[AttributeValue]], typing.Any
     ]
+
+    def serde_side_descrs(self) -> typing.Iterable[ResourceAttributeDescriptor]:
+        return self.serde_side
+
+    def native_side_descrs(self) -> typing.Iterable[NativeAttributeDescriptor]:
+        return [self.native_side]
 
     def to_serde(self, ctx: ToSerdeContext, blob: Ta0, builder: ResourceReprBuilder) -> None:
         result = self.to_serde_factory(ctx, self.native_side.fetch_value(blob))  # type: ignore
@@ -306,6 +340,7 @@ class Mapper(typing.Generic[Tm]):
 
     _attribute_mappings: typing.Sequence[AttributeMapping[Tm]]
     _relationship_mappings: typing.Sequence[RelationshipMapping]
+    _relationship_mappings_by_serde_name: typing.Mapping[str, RelationshipMapping]
 
     @property
     def attribute_mappings(self) -> typing.Sequence[AttributeMapping[Tm]]:
@@ -321,55 +356,47 @@ class Mapper(typing.Generic[Tm]):
 
     @relationship_mappings.setter
     def relationship_mappings(self, value: typing.Iterable[RelationshipMapping]) -> None:
-        self._relationship_mappings = [m.bind(self) for m in value]
+        mappings = [m.bind(self) for m in value]
+        self._relationship_mappings = mappings
+        self._relationship_mappings_by_serde_name = {m.serde_side.name: m for m in mappings}
 
     def _build_native_to_one(
         self,
         ctx: ToNativeContext,
-        builder: NativeBuilder,
-        serde: ResourceRepr,
+        builder: NativeToOneRelationshipBuilder,
+        serde: typing.Optional[ResourceIdRepr],
         native_side: NativeToOneRelationshipDescriptor,
         serde_side: ResourceToOneRelationshipDescriptor,
     ) -> None:
         dest_mapper = ctx.query_mapper_by_serde(serde_side.destination)
-        dest_builder = builder.to_one_relationship(native_side)
-        try:
-            dest_repr = serde_side.extract_related(serde)
-        except KeyError:  # TODO: KeyError?
+        if serde is None:
+            builder.set(None)
             return
-        if ctx.query_descriptor_by_type_name(dest_repr.data.type) != dest_mapper.resource_descr:
+        assert not isinstance(serde, collections.abc.Sequence)
+        if ctx.query_descriptor_by_type_name(serde.type) != dest_mapper.resource_descr:
             raise InvalidStructureError(
-                "resource type {dest_repr.type} is not acceptable in relationship {serde_side.name}"
+                "resource type {serde.type} is not acceptable in relationship {serde_side.name}"
             )
-        assert isinstance(dest_repr, LinkageRepr)
-        id_ = dest_mapper.get_native_identity_by_serde(
-            ctx, typing.cast(ResourceIdRepr, dest_repr.data)
-        )
-        dest_builder.set(id_)
+        id_ = dest_mapper.get_native_identity_by_serde(ctx, serde)
+        builder.set(id_)
 
     def _build_native_to_many(
         self,
         ctx: ToNativeContext,
-        builder: NativeBuilder,
-        serde: ResourceRepr,
+        builder: NativeToManyRelationshipBuilder,
+        serde: typing.Sequence[ResourceIdRepr],
         native_side: NativeToManyRelationshipDescriptor,
         serde_side: ResourceToManyRelationshipDescriptor,
     ) -> None:
         dest_mapper = ctx.query_mapper_by_serde(serde_side.destination)
-        dest_builder = builder.to_many_relationship(native_side)
-        try:
-            dest_reprs = serde_side.extract_related(serde)
-        except KeyError:  # TODO: KeyError?
-            return
-        assert isinstance(dest_reprs, LinkageRepr)
-        assert isinstance(dest_reprs.data, collections.abc.Sequence)
-        for dest_repr in typing.cast(typing.Iterable[ResourceIdRepr], dest_reprs.data):
+        assert isinstance(serde, collections.abc.Sequence)
+        for dest_repr in typing.cast(typing.Iterable[ResourceIdRepr], serde):
             if ctx.query_descriptor_by_type_name(dest_repr.type) != dest_mapper.resource_descr:
                 raise InvalidStructureError(
                     "resource type {dest_repr.type} is not acceptable in relationship {serde_side.name}"
                 )
             id_ = dest_mapper.get_native_identity_by_serde(ctx, dest_repr)
-            dest_builder.next(id_)
+            builder.next(id_)
 
     def _get_attribute_mapping_by_serde_name(self, source: Source, name: str) -> AttributeMapping:
         for am in self.attribute_mappings:
@@ -384,13 +411,13 @@ class Mapper(typing.Generic[Tm]):
                     return am
         raise AttributeNotFoundError(resource=self.resource_descr, name=name, source=source)
 
-    def _get_relationship_mapping_by_serde_name(
-        self, source: Source, name: str
+    def get_relationship_mapping_by_serde_name(
+        self, source: typing.Optional[Source], name: str
     ) -> RelationshipMapping:
-        for rm in self.relationship_mappings:
-            if rm.serde_side.name == name:
-                return rm
-        raise RelationshipNotFoundError(resource=self.resource_descr, name=name, source=source)
+        try:
+            return self._relationship_mappings_by_serde_name[name]
+        except KeyError:
+            raise RelationshipNotFoundError(resource=self.resource_descr, name=name, source=source)
 
     def create_from_serde(
         self, ctx: ToNativeContext, mctx: MutationContext, serde: ResourceRepr
@@ -400,19 +427,23 @@ class Mapper(typing.Generic[Tm]):
             am.to_native(ctx, serde, builder)
         for rm in self.relationship_mappings:
             if ctx.select_relationship(rm):
+                try:
+                    dest_repr = rm.serde_side.extract_related(serde)
+                except RelationshipNotFoundError:
+                    continue
                 if isinstance(rm.native_side, NativeToOneRelationshipDescriptor):
                     self._build_native_to_one(
                         ctx,
-                        builder,
-                        serde,
+                        builder.to_one_relationship(rm.native_side),
+                        typing.cast(typing.Optional[ResourceIdRepr], dest_repr.data),
                         typing.cast(NativeToOneRelationshipDescriptor, rm.native_side),
                         typing.cast(ResourceToOneRelationshipDescriptor, rm.serde_side),
                     )
                 elif isinstance(rm.native_side, NativeToManyRelationshipDescriptor):
                     self._build_native_to_many(
                         ctx,
-                        builder,
-                        serde,
+                        builder.to_many_relationship(rm.native_side),
+                        typing.cast(typing.Sequence[ResourceIdRepr], dest_repr.data),
                         typing.cast(NativeToManyRelationshipDescriptor, rm.native_side),
                         typing.cast(ResourceToManyRelationshipDescriptor, rm.serde_side),
                     )
@@ -421,36 +452,86 @@ class Mapper(typing.Generic[Tm]):
         return builder(mctx)
 
     def update_with_serde(
-        self, ctx: ToNativeContext, mctx: MutationContext, target: Tm, serde: ResourceRepr
+        self,
+        ctx: ToNativeContext,
+        mctx: MutationContext,
+        target: Tm,
+        serde: ResourceRepr,
+        skip_missing: bool = False,
     ) -> Tm:
         builder = self.native_descr.new_updater(target)
-        visited_attribute_mappings: typing.Set[AttributeMapping] = set()
-        for name, _ in serde.attributes:
-            am = self._get_attribute_mapping_by_serde_name(serde._source_, name)
-            if am not in visited_attribute_mappings:
-                visited_attribute_mappings.add(am)
-                am.to_native(ctx, serde, builder)
-        for name, _ in serde.relationships:
-            rm = self._get_relationship_mapping_by_serde_name(serde._source_, name)
+        for am in self.attribute_mappings:
+            if ctx.select_attribute(am):
+                try:
+                    am.to_native(ctx, serde, builder)
+                except AttributeNotFoundError:
+                    if skip_missing:
+                        continue
+                    else:
+                        raise
+        for rm in self.relationship_mappings:
             if ctx.select_relationship(rm):
+                try:
+                    dest_repr = rm.serde_side.extract_related(serde)
+                except RelationshipNotFoundError:
+                    continue
                 if isinstance(rm.native_side, NativeToOneRelationshipDescriptor):
                     self._build_native_to_one(
                         ctx,
-                        builder,
-                        serde,
+                        builder.to_one_relationship(rm.native_side),
+                        typing.cast(typing.Optional[ResourceIdRepr], dest_repr.data),
                         typing.cast(NativeToOneRelationshipDescriptor, rm.native_side),
                         typing.cast(ResourceToOneRelationshipDescriptor, rm.serde_side),
                     )
                 elif isinstance(rm.native_side, NativeToManyRelationshipDescriptor):
                     self._build_native_to_many(
                         ctx,
-                        builder,
-                        serde,
+                        builder.to_many_relationship(rm.native_side),
+                        typing.cast(typing.Sequence[ResourceIdRepr], dest_repr.data),
                         typing.cast(NativeToManyRelationshipDescriptor, rm.native_side),
                         typing.cast(ResourceToManyRelationshipDescriptor, rm.serde_side),
                     )
                 else:
                     raise AssertionError("should never get here!")
+
+        return builder(mctx)
+
+    def update_to_one_rel_with_serde(
+        self,
+        ctx: ToNativeContext,
+        mctx: MutationContext,
+        target: Tm,
+        rm: RelationshipMapping,
+        serde: typing.Optional[ResourceIdRepr],
+    ) -> Tm:
+        assert isinstance(rm.native_side, NativeToOneRelationshipDescriptor)
+        builder = self.native_descr.new_updater(target)
+        self._build_native_to_one(
+            ctx,
+            builder.to_one_relationship(rm.native_side),
+            serde,
+            typing.cast(NativeToOneRelationshipDescriptor, rm.native_side),
+            typing.cast(ResourceToOneRelationshipDescriptor, rm.serde_side),
+        )
+        return builder(mctx)
+
+    def update_to_many_rel_with_serde(
+        self,
+        ctx: ToNativeContext,
+        mctx: MutationContext,
+        target: Tm,
+        rm: RelationshipMapping,
+        serde: typing.Sequence[ResourceIdRepr],
+    ) -> Tm:
+        assert isinstance(rm.native_side, NativeToManyRelationshipDescriptor)
+        builder = self.native_descr.new_updater(target)
+        self._build_native_to_many(
+            ctx,
+            builder.to_many_relationship(rm.native_side),
+            serde,
+            typing.cast(NativeToManyRelationshipDescriptor, rm.native_side),
+            typing.cast(ResourceToManyRelationshipDescriptor, rm.serde_side),
+        )
         return builder(mctx)
 
     def get_native_identity_by_serde(
@@ -465,35 +546,33 @@ class Mapper(typing.Generic[Tm]):
         self,
         ctx: ToSerdeContext,
         rctx: SerdeBuilderContext,
-        builder: ResourceReprBuilder,
+        builder: typing.Union[ToOneRelReprBuilder, ToOneRelDocumentBuilder],
         native: Tm,
         native_side: NativeToOneRelationshipDescriptor,
         serde_side: ResourceToOneRelationshipDescriptor,
     ) -> None:
         dest_mapper = ctx.query_mapper_by_native(native_side.destination)
-        dest_builder = builder.next_to_one_relationship(serde_side.name)
         ep = ctx.resolve_to_one_relationship_endpoint(self, native_side, serde_side, native)
         if ep is not None:
-            dest_builder.links = LinksRepr(self_=ep.get_self())
+            builder.links = LinksRepr(self_=ep.get_self())
         dest = native_side.fetch_related(native)
         if dest is not None:
             rctx.native_visited(ctx, self, dest_mapper, dest)
-            dest_mapper.build_serde(ctx, rctx, dest_builder.set(), dest)
+            dest_mapper.build_serde(ctx, rctx, builder.set(), dest)
 
     def _build_serde_to_many(
         self,
         ctx: ToSerdeContext,
         rctx: SerdeBuilderContext,
-        builder: ResourceReprBuilder,
+        builder: typing.Union[ToManyRelReprBuilder, ToManyRelDocumentBuilder],
         native: Tm,
         native_side: NativeToManyRelationshipDescriptor,
         serde_side: ResourceToManyRelationshipDescriptor,
     ) -> None:
         dest_mapper = ctx.query_mapper_by_native(native_side.destination)
-        dest_builder = builder.next_to_many_relationship(serde_side.name)
         ep = ctx.resolve_to_many_relationship_endpoint(self, native_side, serde_side, native)
         if ep is not None:
-            dest_builder.links = LinksRepr(
+            builder.links = LinksRepr(
                 self_=ep.get_self(),
                 prev=ep.get_prev(),
                 next=ep.get_next(),
@@ -503,7 +582,43 @@ class Mapper(typing.Generic[Tm]):
         dest = native_side.fetch_related(native)
         for n in dest:
             rctx.native_visited(ctx, self, dest_mapper, n)
-            dest_mapper.build_serde(ctx, rctx, dest_builder.next(), n)
+            dest_mapper.build_serde(ctx, rctx, builder.next(), n)
+
+    def build_serde_to_one_relationship(
+        self,
+        ctx: ToSerdeContext,
+        rctx: SerdeBuilderContext,
+        builder: typing.Union[ToOneRelReprBuilder, ToOneRelDocumentBuilder],
+        native: Tm,
+        rm: RelationshipMapping,
+    ) -> None:
+        assert isinstance(rm.native_side, NativeToOneRelationshipDescriptor)
+        self._build_serde_to_one(
+            ctx,
+            rctx,
+            builder,
+            native,
+            typing.cast(NativeToOneRelationshipDescriptor, rm.native_side),
+            typing.cast(ResourceToOneRelationshipDescriptor, rm.serde_side),
+        )
+
+    def build_serde_to_many_relationship(
+        self,
+        ctx: ToSerdeContext,
+        rctx: SerdeBuilderContext,
+        builder: typing.Union[ToManyRelReprBuilder, ToManyRelDocumentBuilder],
+        native: Tm,
+        rm: RelationshipMapping,
+    ) -> None:
+        assert isinstance(rm.native_side, NativeToManyRelationshipDescriptor)
+        self._build_serde_to_many(
+            ctx,
+            rctx,
+            builder,
+            native,
+            typing.cast(NativeToManyRelationshipDescriptor, rm.native_side),
+            typing.cast(ResourceToManyRelationshipDescriptor, rm.serde_side),
+        )
 
     def _build_serde_relationship(
         self,
@@ -513,23 +628,22 @@ class Mapper(typing.Generic[Tm]):
         native: Tm,
         rm: RelationshipMapping,
     ) -> None:
+        dest_builder: typing.Union[ToOneRelReprBuilder, ToManyRelReprBuilder]
         if isinstance(rm.native_side, NativeToOneRelationshipDescriptor):
-            self._build_serde_to_one(
+            self.build_serde_to_one_relationship(
                 ctx,
                 rctx,
-                builder,
+                builder.next_to_one_relationship(rm.serde_side.name),
                 native,
-                typing.cast(NativeToOneRelationshipDescriptor, rm.native_side),
-                typing.cast(ResourceToOneRelationshipDescriptor, rm.serde_side),
+                rm,
             )
         elif isinstance(rm.native_side, NativeToManyRelationshipDescriptor):
-            self._build_serde_to_many(
+            self.build_serde_to_many_relationship(
                 ctx,
                 rctx,
-                builder,
+                builder.next_to_many_relationship(rm.serde_side.name),
                 native,
-                typing.cast(NativeToManyRelationshipDescriptor, rm.native_side),
-                typing.cast(ResourceToManyRelationshipDescriptor, rm.serde_side),
+                rm,
             )
         else:
             raise AssertionError("should never get here!")
@@ -692,7 +806,11 @@ class MapperContext:
 
     class _ToNativeContext(ToNativeContext):
         outer_ctx: "MapperContext"
+        _select_attribute: typing.Optional[typing.Callable[[AttributeMapping], bool]]
         _select_relationship: typing.Optional[typing.Callable[[RelationshipMapping], bool]]
+
+        def select_attribute(self, mapping: "AttributeMapping") -> bool:
+            return self._select_attribute(mapping) if self._select_attribute is not None else True
 
         def select_relationship(self, mapping: "RelationshipMapping") -> bool:
             return (
@@ -715,9 +833,11 @@ class MapperContext:
         def __init__(
             self,
             outer_ctx: "MapperContext",
+            select_attribute: typing.Optional[typing.Callable[[AttributeMapping], bool]],
             select_relationship: typing.Optional[typing.Callable[[RelationshipMapping], bool]],
         ):
             self.outer_ctx = outer_ctx
+            self._select_attribute = select_attribute
             self._select_relationship = select_relationship
 
     class _SerdeBuilderContext(SerdeBuilderContext):
@@ -780,20 +900,22 @@ class MapperContext:
 
     def create_to_native_context(
         self,
+        select_attribute: typing.Optional[typing.Callable[[AttributeMapping], bool]] = None,
         select_relationship: typing.Optional[typing.Callable[[RelationshipMapping], bool]] = None,
     ):
-        return self._ToNativeContext(self, select_relationship)
+        return self._ToNativeContext(self, select_attribute, select_relationship)
 
     def create_from_serde(
         self,
         mctx: MutationContext,
         serde: ResourceRepr,
+        select_attribute: typing.Optional[typing.Callable[[AttributeMapping], bool]] = None,
         select_relationship: typing.Optional[typing.Callable[[RelationshipMapping], bool]] = None,
     ) -> typing.Any:
         resource_descr = self.serde_type_resolver.query_descriptor_by_type_name(serde.type)
         mapper = self._resource_descr_to_mapper_mappings[resource_descr]
         return mapper.create_from_serde(
-            self.create_to_native_context(select_relationship), mctx, serde
+            self.create_to_native_context(select_attribute, select_relationship), mctx, serde
         )
 
     Tmc = typing.TypeVar("Tmc")
@@ -803,19 +925,59 @@ class MapperContext:
         mctx: MutationContext,
         target: Tmc,
         serde: ResourceRepr,
+        select_attribute: typing.Optional[typing.Callable[[AttributeMapping], bool]] = None,
         select_relationship: typing.Optional[typing.Callable[[RelationshipMapping], bool]] = None,
     ) -> Tmc:
         resource_descr = self.serde_type_resolver.query_descriptor_by_type_name(serde.type)
         mapper = self._resource_descr_to_mapper_mappings[resource_descr]
         return mapper.update_with_serde(
-            self.create_to_native_context(select_relationship), mctx, target, serde
+            self.create_to_native_context(select_attribute, select_relationship),
+            mctx,
+            target,
+            serde,
         )
 
-    def new_singleton_document_builder(self) -> SingletonDocumentBuilder:
+    Tmcr = typing.TypeVar("Tmcr")
+
+    def update_to_one_rel_with_serde(
+        self,
+        mctx: MutationContext,
+        target: Tmcr,
+        serde_rel_name: str,
+        serde: typing.Optional[ResourceIdRepr],
+    ) -> Tmcr:
+        mapper = self.query_mapper_by_native_class(type(target))
+        rm = mapper.get_relationship_mapping_by_serde_name(None, serde_rel_name)
+        return mapper.update_to_one_rel_with_serde(
+            self.create_to_native_context(None), mctx, target, rm, serde
+        )
+
+    Tmcrm = typing.TypeVar("Tmcrm")
+
+    def update_to_many_rel_with_serde(
+        self,
+        mctx: MutationContext,
+        target: Tmcrm,
+        serde_rel_name: str,
+        serde: typing.Sequence[ResourceIdRepr],
+    ) -> Tmcrm:
+        mapper = self.query_mapper_by_native_class(type(target))
+        rm = mapper.get_relationship_mapping_by_serde_name(None, serde_rel_name)
+        return mapper.update_to_many_rel_with_serde(
+            self.create_to_native_context(None), mctx, target, rm, serde
+        )
+
+    def _new_singleton_document_builder(self) -> SingletonDocumentBuilder:
         return SingletonDocumentBuilder()
 
-    def new_collection_document_builder(self) -> CollectionDocumentBuilder:
+    def _new_collection_document_builder(self) -> CollectionDocumentBuilder:
         return CollectionDocumentBuilder()
+
+    def _new_to_one_rel_document_builder(self) -> ToOneRelDocumentBuilder:
+        return ToOneRelDocumentBuilder()
+
+    def _new_to_many_rel_document_builder(self) -> ToManyRelDocumentBuilder:
+        return ToManyRelDocumentBuilder()
 
     Tss = typing.TypeVar("Tss")
 
@@ -825,7 +987,7 @@ class MapperContext:
         select_attribute: typing.Optional[typing.Callable[[AttributeMapping], bool]] = None,
         select_relationship: typing.Optional[typing.Callable[[RelationshipMapping], bool]] = None,
     ) -> SingletonDocumentBuilder:
-        builder = self.new_singleton_document_builder()
+        builder = self._new_singleton_document_builder()
         mapper = self.query_mapper_by_native_class(type(native))
         ep = self.endpoint_resolver.resolve_singleton_endpoint(mapper)
         if ep is not None:
@@ -850,7 +1012,7 @@ class MapperContext:
         select_attribute: typing.Optional[typing.Callable[[AttributeMapping], bool]] = None,
         select_relationship: typing.Optional[typing.Callable[[RelationshipMapping], bool]] = None,
     ) -> CollectionDocumentBuilder:
-        builder = self.new_collection_document_builder()
+        builder = self._new_collection_document_builder()
         mapper = self.query_mapper_by_native_class(native_)
         ep = self.endpoint_resolver.resolve_collection_endpoint(mapper)
         if ep is not None:
@@ -872,6 +1034,46 @@ class MapperContext:
                 builder=inner_builder,
                 native=native,
             )
+        return builder
+
+    Trss = typing.TypeVar("Trss")
+
+    def build_serde_rel_single(
+        self,
+        native: Trss,
+        serde_rel_name: str,
+    ) -> ToOneRelDocumentBuilder:
+        builder = self._new_to_one_rel_document_builder()
+        mapper = self.query_mapper_by_native_class(type(native))
+        rctx = self._SerdeBuilderContext(builder)
+        rm = mapper.get_relationship_mapping_by_serde_name(None, serde_rel_name)
+        mapper.build_serde_to_one_relationship(
+            ctx=self.create_to_serde_context(),
+            rctx=rctx,
+            builder=builder,
+            native=native,
+            rm=rm,
+        )
+        return builder
+
+    Trsc = typing.TypeVar("Trsc")
+
+    def build_serde_rel_collection(
+        self,
+        native: Trsc,
+        serde_rel_name: str,
+    ) -> ToManyRelDocumentBuilder:
+        builder = self._new_to_many_rel_document_builder()
+        mapper = self.query_mapper_by_native_class(type(native))
+        rctx = self._SerdeBuilderContext(builder)
+        rm = mapper.get_relationship_mapping_by_serde_name(None, serde_rel_name)
+        mapper.build_serde_to_many_relationship(
+            ctx=self.create_to_serde_context(),
+            rctx=rctx,
+            builder=builder,
+            native=native,
+            rm=rm,
+        )
         return builder
 
     def __init__(

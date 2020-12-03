@@ -1,12 +1,21 @@
 import typing
+from collections import OrderedDict
 
 from .deferred import Deferred
+from .exceptions import AttributeNotFoundError, RelationshipNotFoundError
 from .serde.interfaces import RelationshipType
-from .serde.models import AttributeValue, ResourceRepr
+from .serde.models import AttributeValue, LinkageRepr, ResourceRepr, Source
 
 
 class ResourceMemberDescriptor:
+    parent: typing.Optional["ResourceDescriptor"] = None
     name: str
+
+    T = typing.TypeVar("T", bound="ResourceMemberDescriptor")
+
+    def bind(self: T, parent: "ResourceDescriptor") -> T:
+        self.parent = parent
+        return self
 
 
 class ResourceAttributeDescriptor(ResourceMemberDescriptor):
@@ -14,8 +23,14 @@ class ResourceAttributeDescriptor(ResourceMemberDescriptor):
     type: typing.Type[AttributeValue]
     allow_null: bool
 
-    def extract_value(self, repr_: ResourceRepr) -> AttributeValue:
-        return repr_[self.name]
+    def extract_value(
+        self, repr_: ResourceRepr, source: typing.Optional[Source] = None
+    ) -> AttributeValue:
+        try:
+            return repr_.attributes[self.name]
+        except KeyError:
+            assert self.parent is not None
+            raise AttributeNotFoundError(self.parent, self.name, source)
 
     def __init__(
         self,
@@ -40,11 +55,14 @@ class ResourceRelationshipDescriptor(ResourceMemberDescriptor):
         else:
             return self._destination
 
-    def extract_related(self, repr_: ResourceRepr) -> typing.Any:
-        for k, v in repr_.relationships:
-            if k == self.name:
-                return v
-        raise KeyError(self.name)  # TODO: KeyError?
+    def extract_related(
+        self, repr_: ResourceRepr, source: typing.Optional[Source] = None
+    ) -> LinkageRepr:
+        try:
+            return repr_.relationships[self.name]
+        except KeyError:
+            assert self.parent is not None
+            raise RelationshipNotFoundError(self.parent, self.name, source)
 
     def __init__(
         self,
@@ -66,8 +84,8 @@ class ResourceToManyRelationshipDescriptor(ResourceRelationshipDescriptor):
 
 class ResourceDescriptor:
     name: str
-    attributes: typing.Sequence[ResourceAttributeDescriptor]
-    relationships: typing.Sequence[ResourceRelationshipDescriptor]
+    attributes: typing.Mapping[str, ResourceAttributeDescriptor]
+    relationships: typing.Mapping[str, ResourceRelationshipDescriptor]
 
     def __init__(
         self,
@@ -76,5 +94,5 @@ class ResourceDescriptor:
         relationships: typing.Iterable[ResourceRelationshipDescriptor],
     ):
         self.name = name
-        self.attributes = list(attributes)
-        self.relationships = list(relationships)
+        self.attributes = OrderedDict(((attr.name, attr.bind(self)) for attr in attributes))
+        self.relationships = OrderedDict(((rel.name, rel.bind(self)) for rel in relationships))

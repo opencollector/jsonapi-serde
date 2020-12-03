@@ -101,6 +101,9 @@ class ToNativeContextForTesting(_ToNativeContext):
     serde_to_mapper_map: typing.Mapping[ResourceDescriptor, Mapper]
     type_name_to_serde_map: typing.Mapping[str, ResourceDescriptor]
 
+    def select_attribute(self, mapping: AttributeMapping) -> bool:
+        return True
+
     def select_relationship(self, mapping: RelationshipMapping) -> bool:
         return True
 
@@ -320,13 +323,17 @@ class TestSimple:
             foo_native_descr,
             attribute_mappings=[
                 ToOneAttributeMapping[Foo](
-                    ra, na, to_serde_identity_mapping, to_native_identity_mapping
+                    foo_resource_descr.attributes[na.name],
+                    na,
+                    to_serde_identity_mapping,
+                    to_native_identity_mapping,
                 )
-                for ra, na in zip(foo_resource_descr.attributes, foo_native_descr.attributes)
+                for na in foo_native_descr.attributes
+                if na.name in foo_resource_descr.attributes
             ],
             relationship_mappings=[
-                RelationshipMapping(rd, nd)
-                for rd, nd in zip(foo_resource_descr.relationships, foo_native_descr.relationships)
+                RelationshipMapping(foo_resource_descr.relationships[nr.name], nr)
+                for nr in foo_native_descr.relationships
             ],
         )
 
@@ -338,13 +345,17 @@ class TestSimple:
             bar_native_descr,
             attribute_mappings=[
                 ToOneAttributeMapping[Bar](
-                    ra, na, to_serde_identity_mapping, to_native_identity_mapping
+                    bar_resource_descr.attributes[na.name],
+                    na,
+                    to_serde_identity_mapping,
+                    to_native_identity_mapping,
                 )
-                for ra, na in zip(bar_resource_descr.attributes, bar_native_descr.attributes)
+                for na in bar_native_descr.attributes
+                if na.name in bar_resource_descr.attributes
             ],
             relationship_mappings=[
-                RelationshipMapping(rd, nd)
-                for rd, nd in zip(bar_resource_descr.relationships, bar_native_descr.relationships)
+                RelationshipMapping(bar_resource_descr.relationships[nr.name], nr)
+                for nr in bar_native_descr.relationships
             ],
         )
 
@@ -356,13 +367,17 @@ class TestSimple:
             baz_native_descr,
             attribute_mappings=[
                 ToOneAttributeMapping[Baz](
-                    ra, na, to_serde_identity_mapping, to_native_identity_mapping
+                    baz_resource_descr.attributes[na.name],
+                    na,
+                    to_serde_identity_mapping,
+                    to_native_identity_mapping,
                 )
-                for ra, na in zip(baz_resource_descr.attributes, baz_native_descr.attributes)
+                for na in baz_native_descr.attributes
+                if na.name in baz_resource_descr.attributes
             ],
             relationship_mappings=[
-                RelationshipMapping(rd, nd)
-                for rd, nd in zip(baz_resource_descr.relationships, baz_native_descr.relationships)
+                RelationshipMapping(baz_resource_descr.relationships[nr.name], nr)
+                for nr in baz_native_descr.relationships
             ],
         )
 
@@ -416,17 +431,15 @@ class TestSimple:
         foo_mapper.build_serde(to_serde_ctx, dummy_serde_builder_context, builder, f)
         repr_ = builder()
         assert repr_.id == str(f.id)
-        assert repr_.relationships[0][0] == "bar"
-        assert repr_.relationships[0][1].data.type == "bar"
-        assert repr_.relationships[0][1].data.id == str(f.bar.id)
-        assert repr_.relationships[1][0] == "bazs"
-        assert len(repr_.relationships[1][1].data) == 3
-        assert repr_.relationships[1][1].data[0].type == "baz"
-        assert repr_.relationships[1][1].data[0].id == str(f.bazs[0].id)
-        assert repr_.relationships[1][1].data[1].type == "baz"
-        assert repr_.relationships[1][1].data[1].id == str(f.bazs[1].id)
-        assert repr_.relationships[1][1].data[2].type == "baz"
-        assert repr_.relationships[1][1].data[2].id == str(f.bazs[2].id)
+        assert repr_.relationships["bar"].data.type == "bar"
+        assert repr_.relationships["bar"].data.id == str(f.bar.id)
+        assert len(repr_.relationships["bazs"].data) == 3
+        assert repr_.relationships["bazs"].data[0].type == "baz"
+        assert repr_.relationships["bazs"].data[0].id == str(f.bazs[0].id)
+        assert repr_.relationships["bazs"].data[1].type == "baz"
+        assert repr_.relationships["bazs"].data[1].id == str(f.bazs[1].id)
+        assert repr_.relationships["bazs"].data[2].type == "baz"
+        assert repr_.relationships["bazs"].data[2].id == str(f.bazs[2].id)
 
     @pytest.mark.usefixtures("bar_mapper", "baz_mapper")
     def test_update_with_serde(self, engine, metadata, foo_mapper, to_native_ctx, Foo, Bar, Baz):
@@ -748,13 +761,17 @@ class TestComposite:
             foo_native_descr,
             attribute_mappings=[
                 ToOneAttributeMapping[Foo](
-                    ra, na, to_serde_identity_mapping, to_native_identity_mapping
+                    foo_resource_descr.attributes[na.name],
+                    na,
+                    to_serde_identity_mapping,
+                    to_native_identity_mapping,
                 )
-                for ra, na in zip(foo_resource_descr.attributes, foo_native_descr.attributes)
+                for na in foo_native_descr.attributes
+                if na.name in foo_resource_descr.attributes
             ],
             relationship_mappings=[
-                RelationshipMapping(rd, nd)
-                for rd, nd in zip(foo_resource_descr.relationships, foo_native_descr.relationships)
+                RelationshipMapping(foo_resource_descr.relationships[nr.name], nr)
+                for nr in foo_native_descr.relationships
             ],
         )
 
@@ -766,13 +783,17 @@ class TestComposite:
             bar_native_descr,
             attribute_mappings=[
                 ToOneAttributeMapping[Bar](
-                    ra, na, to_serde_identity_mapping, to_native_identity_mapping
+                    bar_resource_descr.attributes[na.name],
+                    na,
+                    to_serde_identity_mapping,
+                    to_native_identity_mapping,
                 )
-                for ra, na in zip(bar_resource_descr.attributes, bar_native_descr.attributes)
+                for na in bar_native_descr.attributes
+                if na.name in bar_resource_descr.attributes
             ],
             relationship_mappings=[
-                RelationshipMapping(rd, nd)
-                for rd, nd in zip(bar_resource_descr.relationships, bar_native_descr.relationships)
+                RelationshipMapping(bar_resource_descr.relationship[nr.name], nr)
+                for nr in bar_native_descr.relationships
             ],
         )
 
@@ -784,13 +805,17 @@ class TestComposite:
             baz_native_descr,
             attribute_mappings=[
                 ToOneAttributeMapping[Baz](
-                    ra, na, to_serde_identity_mapping, to_native_identity_mapping
+                    baz_resource_descr.attributes[na.name],
+                    na,
+                    to_serde_identity_mapping,
+                    to_native_identity_mapping,
                 )
-                for ra, na in zip(baz_resource_descr.attributes, baz_native_descr.attributes)
+                for na in baz_native_descr.attributes
+                if na.name in baz_resource_descr.attributes
             ],
             relationship_mappings=[
-                RelationshipMapping(rd, nd)
-                for rd, nd in zip(baz_resource_descr.relationships, baz_native_descr.relationships)
+                RelationshipMapping(baz_resource_descr.relationships[nr.name], nr)
+                for nr in baz_native_descr.relationships
             ],
         )
 
@@ -848,17 +873,15 @@ class TestComposite:
         foo_mapper.build_serde(to_serde_ctx, dummy_serde_builder_context, builder, f)
         repr_ = builder()
         assert repr_.id == f"{f.id1}-{f.id2}"
-        assert repr_.relationships[0][0] == "bar"
-        assert repr_.relationships[0][1].data.type == "bar"
-        assert repr_.relationships[0][1].data.id == f"{f.bar.id1}-{f.bar.id2}"
-        assert repr_.relationships[1][0] == "bazs"
-        assert len(repr_.relationships[1][1].data) == 3
-        assert repr_.relationships[1][1].data[0].type == "baz"
-        assert repr_.relationships[1][1].data[0].id == str(f.bazs[0].id)
-        assert repr_.relationships[1][1].data[1].type == "baz"
-        assert repr_.relationships[1][1].data[1].id == str(f.bazs[1].id)
-        assert repr_.relationships[1][1].data[2].type == "baz"
-        assert repr_.relationships[1][1].data[2].id == str(f.bazs[2].id)
+        assert repr_.relationships["bar"].data.type == "bar"
+        assert repr_.relationships["bar"].data.id == f"{f.bar.id1}-{f.bar.id2}"
+        assert len(repr_.relationships["bazs"].data) == 3
+        assert repr_.relationships["bazs"].data[0].type == "baz"
+        assert repr_.relationships["bazs"].data[0].id == str(f.bazs[0].id)
+        assert repr_.relationships["bazs"].data[1].type == "baz"
+        assert repr_.relationships["bazs"].data[1].id == str(f.bazs[1].id)
+        assert repr_.relationships["bazs"].data[2].type == "baz"
+        assert repr_.relationships["bazs"].data[2].id == str(f.bazs[2].id)
 
     @pytest.mark.usefixtures("bar_mapper", "baz_mapper")
     def test_update_with_serde(self, engine, metadata, foo_mapper, to_native_ctx, Foo, Bar, Baz):
@@ -1083,12 +1106,14 @@ class TestCircular:
             foo_resource_descr,
             foo_native_descr,
             attribute_mappings=[
-                ToOneAttributeMapping[Foo](ra, na)
-                for ra, na in zip(foo_resource_descr.attributes, foo_native_descr.attributes)
+                ToOneAttributeMapping[Foo](foo_resource_descr.attributes[na.name], na)
+                for na in foo_native_descr.attributes
+                if na.name in foo_resource_descr.attributes
             ],
             relationship_mappings=[
-                RelationshipMapping(rd, nd)
-                for rd, nd in zip(foo_resource_descr.relationships, foo_native_descr.relationships)
+                RelationshipMapping(foo_resource_descr.relationships[nr.name], nr)
+                for nr in foo_native_descr.relationships
+                if nr.name in foo_resource_descr.relationships
             ],
         )
 
@@ -1129,8 +1154,6 @@ class TestCircular:
         repr_ = builder()
 
         assert repr_.id == "2"
-        assert repr_.relationships[0][0] == "parent"
-        assert repr_.relationships[0][1].data.id == "1"
-        assert repr_.relationships[1][0] == "foos"
-        assert repr_.relationships[1][1].data[0].id == "3"
-        assert repr_.relationships[1][1].data[1].id == "4"
+        assert repr_.relationships["parent"].data.id == "1"
+        assert repr_.relationships["foos"].data[0].id == "3"
+        assert repr_.relationships["foos"].data[1].id == "4"
