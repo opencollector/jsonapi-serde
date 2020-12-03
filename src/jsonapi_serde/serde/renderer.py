@@ -223,12 +223,12 @@ class ReprRenderer:
         if repr_.attributes:
             new_ctx = (ctx / "attributes") | repr_
             retval["attributes"] = self._dict_factory(
-                (k, self._render_scalar(new_ctx / k, v)) for k, v in repr_.attributes
+                (k, self._render_scalar(new_ctx / k, v)) for k, v in repr_.attributes.items()
             )
         if repr_.relationships:
             new_ctx = (ctx / "relationships") | repr_
             retval["relationships"] = self._dict_factory(
-                (k, self._render_relationship(new_ctx / k, v)) for k, v in repr_.relationships
+                (k, self._render_relationship(new_ctx / k, v)) for k, v in repr_.relationships.items()
             )
         if repr_.meta:
             retval["meta"] = repr_.meta

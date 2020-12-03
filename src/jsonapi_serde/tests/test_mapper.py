@@ -23,7 +23,11 @@ from ..models import (
     ResourceToManyRelationshipDescriptor,
     ResourceToOneRelationshipDescriptor,
 )
-from ..serde.builders import ResourceReprBuilder
+from ..serde.builders import (
+    ResourceReprBuilder,
+    ToManyRelDocumentBuilder,
+    ToOneRelDocumentBuilder,
+)
 from ..serde.models import (
     AttributeValue,
     LinkageRepr,
@@ -31,6 +35,8 @@ from ..serde.models import (
     ResourceIdRepr,
     ResourceRepr,
     Source,
+    ToManyRelDocumentRepr,
+    ToOneRelDocumentRepr,
 )
 
 
@@ -871,6 +877,74 @@ class TestMapper:
                             ),
                         ),
                     ),
+                ),
+            ),
+        )
+
+    def test_build_serde_to_one_relationship(self, target, dummy_to_serde_context):
+        builder = ToOneRelDocumentBuilder()
+        native = Foo(
+            a="1",
+            b=2,
+            c=3,
+            id="1",
+            bar=Bar(
+                d="1",
+                e=2,
+                id="1",
+            ),
+        )
+        dummy_serde_builder_context = mock.Mock()
+        target.build_serde_to_one_relationship(
+            dummy_to_serde_context(lambda _: True),
+            dummy_serde_builder_context,
+            builder,
+            native,
+            target.get_relationship_mapping_by_serde_name(None, "bar"),
+        )
+        assert builder() == ToOneRelDocumentRepr(
+            links=LinksRepr(
+                self_="/foo/1/@bar/1",
+            ),
+            data=ResourceIdRepr(
+                type="bar",
+                id="1",
+            ),
+        )
+
+    def test_build_serde_to_many_relationship(self, target, dummy_to_serde_context):
+        builder = ToManyRelDocumentBuilder()
+        native = Foo(
+            a="1",
+            b=2,
+            c=3,
+            id="1",
+            bazs=[
+                Baz(f=1, g="2", id="1"),
+                Baz(f=3, g="4", id="2"),
+            ],
+        )
+        dummy_serde_builder_context = mock.Mock()
+        target.build_serde_to_many_relationship(
+            dummy_to_serde_context(lambda _: True),
+            dummy_serde_builder_context,
+            builder,
+            native,
+            target.get_relationship_mapping_by_serde_name(None, "bazs"),
+        )
+        assert builder() == ToManyRelDocumentRepr(
+            links=LinksRepr(
+                self_="/foo/1/@baz?page=0",
+                next="/foo/1/@baz?page=1",
+            ),
+            data=(
+                ResourceIdRepr(
+                    type="baz",
+                    id="1",
+                ),
+                ResourceIdRepr(
+                    type="baz",
+                    id="2",
                 ),
             ),
         )

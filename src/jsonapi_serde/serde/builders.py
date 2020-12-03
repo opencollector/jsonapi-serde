@@ -12,6 +12,8 @@ from .models import (
     ResourceIdRepr,
     ResourceRepr,
     SingletonDocumentRepr,
+    ToManyRelDocumentRepr,
+    ToOneRelDocumentRepr,
 )
 
 
@@ -210,3 +212,46 @@ class SingletonDocumentBuilder(DocumentBuilder):
     def __init__(self):
         super().__init__()
         self.data = ResourceReprBuilder()
+
+
+class ToManyRelDocumentBuilder(DocumentBuilder):
+    data: typing.List["ResourceIdReprBuilder"]
+
+    def next(self) -> "ResourceIdReprBuilder":
+        builder = ResourceIdReprBuilder()
+        self.data.append(builder)
+        return builder
+
+    def __call__(self) -> ToManyRelDocumentRepr:
+        return ToManyRelDocumentRepr(
+            data=tuple(b() for b in self.data),
+            errors=tuple(self.errors),
+            jsonapi=self.jsonapi,
+            links=self.links,
+            meta=self.meta,
+        )
+
+    def __init__(self):
+        super().__init__()
+        self.data = []
+
+
+class ToOneRelDocumentBuilder(DocumentBuilder):
+    data: typing.Optional[ResourceIdReprBuilder]
+
+    def set(self) -> "ResourceIdReprBuilder":
+        self.data = builder = ResourceIdReprBuilder()
+        return builder
+
+    def __call__(self) -> ToOneRelDocumentRepr:
+        return ToOneRelDocumentRepr(
+            data=self.data() if self.data is not None else None,
+            errors=tuple(self.errors),
+            jsonapi=self.jsonapi,
+            links=self.links,
+            meta=self.meta,
+        )
+
+    def __init__(self):
+        super().__init__()
+        self.data = None

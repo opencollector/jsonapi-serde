@@ -6,10 +6,11 @@ import dataclasses
 import datetime
 import decimal
 import typing
+from collections import OrderedDict
 
 from .utils import JSONPointer
 
-Source = typing.Union[JSONPointer, str, None]
+Source = typing.Union[JSONPointer, str]
 
 
 @dataclasses.dataclass
@@ -18,7 +19,7 @@ class Repr:
     The base class for any model objects.
     """
 
-    _source_: Source = None
+    _source_: typing.Optional[Source] = None
 
 
 @dataclasses.dataclass
@@ -49,7 +50,7 @@ class MetaContainerRepr(Repr):
     meta: typing.Dict[str, typing.Any] = dataclasses.field(default_factory=dict)
 
     def __init__(
-        self, *, meta: typing.Optional[typing.Dict[str, typing.Any]] = None, _source_: Source = None
+        self, *, meta: typing.Optional[typing.Dict[str, typing.Any]] = None, _source_: typing.Optional[Source] = None
     ):
         """
         :param Optional[Dict[str. Any]] meta: a dictionary containing user-defined information.
@@ -72,7 +73,7 @@ class NodeRepr(MetaContainerRepr):
         *,
         links: typing.Optional[LinksRepr] = None,
         meta: typing.Optional[typing.Dict[str, typing.Any]] = None,
-        _source_: Source = None,
+        _source_: typing.Optional[Source] = None,
     ):
         """
         :param Optional[LinksRepr] links: a :py:class:`LinksRepr` instance.
@@ -98,7 +99,7 @@ class ResourceIdRepr(MetaContainerRepr):
         type: str,
         id: str,
         meta: typing.Optional[typing.Dict[str, typing.Any]] = None,
-        _source_: Source = None,
+        _source_: typing.Optional[Source] = None,
     ):
         """
         :param str type: a value for ``type`` property.
@@ -125,7 +126,7 @@ class LinkageRepr(NodeRepr):
         data: typing.Union[None, ResourceIdRepr, typing.Sequence[ResourceIdRepr]],
         links: typing.Optional[LinksRepr] = None,
         meta: typing.Optional[typing.Dict[str, typing.Any]] = None,
-        _source_: Source = None,
+        _source_: typing.Optional[Source] = None,
     ):
         """
         :param Union[None, ResourceIdRepr, Sequence[ResourceIdRepr]] data: a value for ``data`` property.
@@ -145,8 +146,6 @@ AttributeValue = typing.Union[
     typing.Mapping[str, AttributeScalar],
     AttributeScalar,
 ]
-AttributesRepr = typing.Sequence[typing.Tuple[str, AttributeValue]]
-RelationshipsRepr = typing.Sequence[typing.Tuple[str, LinkageRepr]]
 
 
 @dataclasses.dataclass(init=False)
@@ -157,31 +156,28 @@ class ResourceRepr(NodeRepr):
 
     type: str  # type: ignore
     id: typing.Optional[str]  # type: ignore
-    attributes: AttributesRepr = dataclasses.field(default_factory=AttributesRepr)  # type: ignore
-    relationships: RelationshipsRepr = dataclasses.field(default_factory=RelationshipsRepr)  # type: ignore
+    attributes: typing.Mapping[str, AttributeValue] = dataclasses.field(default_factory=OrderedDict)  # type: ignore
+    relationships: typing.Mapping[str, LinkageRepr] = dataclasses.field(default_factory=OrderedDict)  # type: ignore
 
     def __getitem__(self, name):
-        # FIXME
-        for attr_name, v in self.attributes:
-            if attr_name == name:
-                return v
+        return self.attributes[name]
 
     def __init__(
         self,
         *,
         type: str,
         id: typing.Optional[str],
-        attributes: AttributesRepr,
-        relationships: RelationshipsRepr = (),
+        attributes: typing.Iterable[typing.Tuple[str, AttributeValue]],
+        relationships: typing.Iterable[typing.Tuple[str, LinkageRepr]] = (),
         links: typing.Optional[LinksRepr] = None,
         meta: typing.Optional[typing.Dict[str, typing.Any]] = None,
-        _source_: Source = None,
+        _source_: typing.Optional[Source] = None,
     ):
         """
         :param str type: a value for ``type`` property.
         :param str id: an optional value for ``id` property.
-        :param Sequence[Tuple[str, AttributeValue]] attributes: a sequence of tuples each of which represents a key-value pair of an attribute.
-        :param Sequence[Tuple[str, LinksRepr]] relationships: a sequence of tuples each of which represent a key-alue pair of a relationship.
+        :param Iterable[Tuple[str, AttributeValue]] attributes: a sequence of tuples each of which represents a key-value pair of an attribute.
+        :param Iterable[Tuple[str, LinkageRepr]] relationships: a sequence of tuples each of which represent a key-alue pair of a relationship.
         :param Optional[LinksRepr] links: a value for ``links`` property.
         :param Optional[Dict[str. Any]] meta: a dictionary containing user-defined information.
         :param Union[JSONPointer, str, None] _source_: an object that describes the source of the node.
@@ -189,8 +185,8 @@ class ResourceRepr(NodeRepr):
         super().__init__(links=links, meta=meta, _source_=_source_)
         self.type = type
         self.id = id
-        self.attributes = attributes
-        self.relationships = relationships
+        self.attributes = OrderedDict(attributes)
+        self.relationships = OrderedDict(relationships)
 
 
 @dataclasses.dataclass(init=False)
@@ -206,7 +202,7 @@ class SourceRepr(Repr):
         self,
         pointer: typing.Optional[str] = None,
         parameter: typing.Optional[str] = None,
-        _source_: Source = None,
+        _source_: typing.Optional[Source] = None,
     ):
         super().__init__(_source_=_source_)
         self.pointer = pointer
@@ -237,7 +233,7 @@ class DocumentReprBase(NodeRepr):
         included: typing.Sequence[ResourceRepr] = (),
         links: typing.Optional[LinksRepr] = None,
         meta: typing.Optional[typing.Dict[str, typing.Any]] = None,
-        _source_: Source = None,
+        _source_: typing.Optional[Source] = None,
     ):
         """
         :param Optional[Dict[str, Any]] jsonapi:
@@ -253,6 +249,17 @@ class DocumentReprBase(NodeRepr):
         self.included = included
 
 
+class MissingType:
+    def __bool__(self):
+        return False
+
+    def __init__(self):
+        raise TypeError("Not directly instantiable")
+
+
+Missing = object.__new__(MissingType)
+
+
 @dataclasses.dataclass(init=False)
 class SingletonDocumentRepr(DocumentReprBase):
     data: typing.Optional[ResourceRepr] = None
@@ -264,8 +271,8 @@ class SingletonDocumentRepr(DocumentReprBase):
         included: typing.Sequence[ResourceRepr] = (),
         links: typing.Optional[LinksRepr] = None,
         meta: typing.Optional[typing.Dict[str, typing.Any]] = None,
-        data: typing.Optional[ResourceRepr] = None,
-        _source_: Source = None,
+        data: typing.Union[ResourceRepr, None, MissingType] = Missing,
+        _source_: typing.Optional[Source] = None,
     ):
         """
         Either errors, meta, or data must take a non-None value.
@@ -278,7 +285,7 @@ class SingletonDocumentRepr(DocumentReprBase):
         :param Optional[ResourceRepr] data: a ResourceRepr object.
         :param Union[JSONPointer, str, None] _source_: an object that describes the source of the node.
         """
-        if data is None and errors is None and meta is None:
+        if data is Missing and errors is None and meta is None:
             raise ValueError("either data, errors, or meta must be specified")
         super().__init__(
             jsonapi=jsonapi,
@@ -288,7 +295,7 @@ class SingletonDocumentRepr(DocumentReprBase):
             meta=meta,
             _source_=_source_,
         )
-        self.data = data
+        self.data = typing.cast(typing.Optional[ResourceRepr], data) if data is not Missing else None
 
 
 @dataclasses.dataclass(init=False)
@@ -303,7 +310,83 @@ class CollectionDocumentRepr(DocumentReprBase):
         links: typing.Optional[LinksRepr] = None,
         meta: typing.Optional[typing.Dict[str, typing.Any]] = None,
         data: typing.Optional[typing.Sequence[ResourceRepr]] = None,
-        _source_: Source = None,
+        _source_: typing.Optional[Source] = None,
+    ):
+        """
+        Either errors, meta, or data must take a non-None value.
+
+        :param Optional[Dict[str, Any]] jsonapi:
+        :param Optional[Sequence[ErrorRepr]]: a sequence of :py:class:`ErrorRepr`.
+        :param Sequence[ResourceRepr]: a sequence of :py:class:`ResourceRepr`.
+        :param Optional[LinksRepr] links: a value for ``links`` property.
+        :param Optional[Dict[str, Any]] meta: a dictionary containing user-defined information.
+        :param Optional[Sequence[ResourceRepr]] data: a ResourceRepr object.
+        :param Union[JSONPointer, str, None] _source_: an object that describes the source of the node.
+        """
+        if data is None and errors is None and meta is None:
+            raise ValueError("either data, errors, or meta must be specified")
+        super().__init__(
+            jsonapi=jsonapi,
+            errors=errors,
+            included=included,
+            links=links,
+            meta=meta,
+            _source_=_source_,
+        )
+        self.data = data or ()
+
+
+@dataclasses.dataclass(init=False)
+class ToOneRelDocumentRepr(DocumentReprBase):
+    data: typing.Optional[ResourceIdRepr] = None
+
+    def __init__(
+        self,
+        jsonapi: typing.Optional[typing.Dict[str, typing.Any]] = None,
+        errors: typing.Optional[typing.Sequence[ErrorRepr]] = None,
+        included: typing.Sequence[ResourceRepr] = (),
+        links: typing.Optional[LinksRepr] = None,
+        meta: typing.Optional[typing.Dict[str, typing.Any]] = None,
+        data: typing.Union[ResourceIdRepr, None, MissingType] = Missing,
+        _source_: typing.Optional[Source] = None,
+    ):
+        """
+        Either errors, meta, or data must take a non-None value.
+
+        :param Optional[Dict[str, Any]] jsonapi:
+        :param Optional[Sequence[ErrorRepr]]: a sequence of :py:class:`ErrorRepr`.
+        :param Sequence[ResourceRepr]: a sequence of :py:class:`ResourceRepr`.
+        :param Optional[LinksRepr] links: a value for ``links`` property.
+        :param Optional[Dict[str, Any]] meta: a dictionary containing user-defined information.
+        :param Optional[ResourceIdRepr] data: a ResourceRepr object.
+        :param Union[JSONPointer, str, None] _source_: an object that describes the source of the node.
+        """
+        if data is Missing and errors is None and meta is None:
+            raise ValueError("either data, errors, or meta must be specified")
+        super().__init__(
+            jsonapi=jsonapi,
+            errors=errors,
+            included=included,
+            links=links,
+            meta=meta,
+            _source_=_source_,
+        )
+        self.data = typing.cast(typing.Optional[ResourceIdRepr], data) if data is not Missing else None
+
+
+@dataclasses.dataclass(init=False)
+class ToManyRelDocumentRepr(DocumentReprBase):
+    data: typing.Sequence[ResourceIdRepr] = ()
+
+    def __init__(
+        self,
+        jsonapi: typing.Optional[typing.Dict[str, typing.Any]] = None,
+        errors: typing.Optional[typing.Sequence[ErrorRepr]] = None,
+        included: typing.Sequence[ResourceRepr] = (),
+        links: typing.Optional[LinksRepr] = None,
+        meta: typing.Optional[typing.Dict[str, typing.Any]] = None,
+        data: typing.Optional[typing.Sequence[ResourceIdRepr]] = None,
+        _source_: typing.Optional[Source] = None,
     ):
         """
         Either errors, meta, or data must take a non-None value.
