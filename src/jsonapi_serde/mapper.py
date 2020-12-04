@@ -337,6 +337,28 @@ class Mapper(typing.Generic[Tm]):
     resource_descr: ResourceDescriptor
     native_descr: NativeDescriptor
     ctx: typing.Optional["MapperContext"]
+    resource_filters: typing.Sequence[
+        typing.Callable[[ToNativeContext, "Mapper", ResourceRepr], ResourceRepr]
+    ]
+    native_builder_filters: typing.Sequence[
+        typing.Callable[
+            [ToNativeContext, "Mapper", MutationContext, ResourceRepr, NativeBuilder], NativeBuilder
+        ]
+    ]
+    native_filters: typing.Sequence[
+        typing.Callable[[ToNativeContext, "Mapper", MutationContext, ResourceRepr, Tm], Tm]
+    ]
+    serde_builder_filters: typing.Sequence[
+        typing.Callable[
+            [
+                ToSerdeContext,
+                "Mapper",
+                SerdeBuilderContext,
+                typing.Union[ResourceReprBuilder, ResourceIdReprBuilder],
+            ],
+            typing.Union[ResourceReprBuilder, ResourceIdReprBuilder],
+        ]
+    ]
 
     _attribute_mappings: typing.Sequence[AttributeMapping[Tm]]
     _relationship_mappings: typing.Sequence[RelationshipMapping]
@@ -422,6 +444,9 @@ class Mapper(typing.Generic[Tm]):
     def create_from_serde(
         self, ctx: ToNativeContext, mctx: MutationContext, serde: ResourceRepr
     ) -> Tm:
+        for rf in self.resource_filters:
+            serde = rf(ctx, self, serde)
+
         builder = self.native_descr.new_builder()
         for am in self.attribute_mappings:
             am.to_native(ctx, serde, builder)
@@ -449,7 +474,15 @@ class Mapper(typing.Generic[Tm]):
                     )
                 else:
                     raise AssertionError("should never get here!")
-        return builder(mctx)
+
+        for nbf in self.native_builder_filters:
+            builder = nbf(ctx, self, mctx, serde, builder)
+
+        native = builder(mctx)
+
+        for nf in self.native_filters:
+            native = nf(ctx, self, mctx, serde, native)
+        return native
 
     def update_with_serde(
         self,
@@ -459,6 +492,9 @@ class Mapper(typing.Generic[Tm]):
         serde: ResourceRepr,
         skip_missing: bool = False,
     ) -> Tm:
+        for rf in self.resource_filters:
+            serde = rf(ctx, self, serde)
+
         builder = self.native_descr.new_updater(target)
         for am in self.attribute_mappings:
             if ctx.select_attribute(am):
@@ -494,7 +530,14 @@ class Mapper(typing.Generic[Tm]):
                 else:
                     raise AssertionError("should never get here!")
 
-        return builder(mctx)
+        for nbf in self.native_builder_filters:
+            builder = nbf(ctx, self, mctx, serde, builder)
+
+        native = builder(mctx)
+
+        for nf in self.native_filters:
+            native = nf(ctx, self, mctx, serde, native)
+        return native
 
     def update_to_one_rel_with_serde(
         self,
@@ -665,6 +708,8 @@ class Mapper(typing.Generic[Tm]):
             for rm in self.relationship_mappings:
                 if ctx.select_relationship(rm):
                     self._build_serde_relationship(ctx, rctx, builder, native, rm)
+        for sbf in self.serde_builder_filters:
+            sbf(ctx, self, rctx, builder)
 
     def bind(self, ctx: "MapperContext") -> None:
         self.ctx = ctx
@@ -676,12 +721,39 @@ class Mapper(typing.Generic[Tm]):
         attribute_mappings: typing.Sequence[AttributeMapping],
         relationship_mappings: typing.Sequence[RelationshipMapping],
         ctx: typing.Optional["MapperContext"] = None,
+        resource_filters: typing.Sequence[
+            typing.Callable[[ToNativeContext, "Mapper", ResourceRepr], ResourceRepr]
+        ] = (),
+        native_builder_filters: typing.Sequence[
+            typing.Callable[
+                [ToNativeContext, "Mapper", MutationContext, ResourceRepr, NativeBuilder],
+                NativeBuilder,
+            ]
+        ] = (),
+        native_filters: typing.Sequence[
+            typing.Callable[[ToNativeContext, "Mapper", MutationContext, ResourceRepr, Tm], Tm]
+        ] = (),
+        serde_builder_filters: typing.Sequence[
+            typing.Callable[
+                [
+                    ToSerdeContext,
+                    "Mapper",
+                    SerdeBuilderContext,
+                    typing.Union[ResourceReprBuilder, ResourceIdReprBuilder],
+                ],
+                typing.Union[ResourceReprBuilder, ResourceIdReprBuilder],
+            ]
+        ] = (),
     ):
         self.resource_descr = resource_descr
         self.native_descr = native_descr
         self.attribute_mappings = attribute_mappings
         self.relationship_mappings = relationship_mappings
         self.ctx = ctx
+        self.resource_filters = resource_filters
+        self.native_builder_filters = native_builder_filters
+        self.native_filters = native_filters
+        self.serde_builder_filters = serde_builder_filters
 
 
 class Driver(metaclass=abc.ABCMeta):
@@ -877,6 +949,29 @@ class MapperContext:
         native_descr: NativeDescriptor,
         attribute_mappings: typing.Sequence[AttributeMapping],
         relationship_mappings: typing.Sequence[RelationshipMapping],
+        resource_filters: typing.Sequence[
+            typing.Callable[[ToNativeContext, "Mapper", ResourceRepr], ResourceRepr]
+        ] = (),
+        native_builder_filters: typing.Sequence[
+            typing.Callable[
+                [ToNativeContext, "Mapper", MutationContext, ResourceRepr, NativeBuilder],
+                NativeBuilder,
+            ]
+        ] = (),
+        native_filters: typing.Sequence[
+            typing.Callable[[ToNativeContext, "Mapper", MutationContext, ResourceRepr, Tm], Tm]
+        ] = (),
+        serde_builder_filters: typing.Sequence[
+            typing.Callable[
+                [
+                    ToSerdeContext,
+                    "Mapper",
+                    SerdeBuilderContext,
+                    typing.Union[ResourceReprBuilder, ResourceIdReprBuilder],
+                ],
+                typing.Union[ResourceReprBuilder, ResourceIdReprBuilder],
+            ]
+        ] = (),
     ) -> Mapper:
         mapper = Mapper[typing.Any](
             resource_descr=resource_descr,
@@ -884,6 +979,10 @@ class MapperContext:
             attribute_mappings=attribute_mappings,
             relationship_mappings=relationship_mappings,
             ctx=self,
+            resource_filters=resource_filters,
+            native_builder_filters=native_builder_filters,
+            native_filters=native_filters,
+            serde_builder_filters=serde_builder_filters,
         )
         self._resource_descr_to_mapper_mappings[resource_descr] = mapper
         self._native_descr_to_mapper_mappings[native_descr] = mapper

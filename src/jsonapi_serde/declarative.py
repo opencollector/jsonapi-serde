@@ -4,7 +4,9 @@ import typing
 
 from .deferred import Deferred
 from .interfaces import (
+    MutationContext,
     NativeAttributeDescriptor,
+    NativeBuilder,
     NativeDescriptor,
     NativeRelationshipDescriptor,
     NativeToManyRelationshipDescriptor,
@@ -15,6 +17,7 @@ from .mapper import (
     ManyToOneAttributeMapping,
     Mapper,
     RelationshipMapping,
+    SerdeBuilderContext,
     ToManyAttributeMapping,
     ToNativeContext,
     ToOneAttributeMapping,
@@ -27,7 +30,8 @@ from .models import (
     ResourceToManyRelationshipDescriptor,
     ResourceToOneRelationshipDescriptor,
 )
-from .serde.models import AttributeValue, Source
+from .serde.models import AttributeValue, ResourceRepr, LinkageRepr, Source
+from .serde.builders import DocumentBuilder, ResourceReprBuilder, ResourceIdReprBuilder
 
 
 class Members:
@@ -48,13 +52,47 @@ class Tuple(Members):
 AttributeMappingType = typing.Sequence[
     typing.Tuple[typing.Union[str, Dict, Tuple], typing.Union[str, Dict, Tuple]]
 ]
-RelatinoshipMappingType = typing.Sequence[typing.Tuple[str, str]]
+RelationshipMappingType = typing.Sequence[typing.Tuple[str, str]]
+
+
+@dataclasses.dataclass
+class SerdeSideMeta:
+    resource_filters: typing.Sequence[
+        typing.Callable[[ToNativeContext, Mapper, ResourceRepr], ResourceRepr]
+    ] = ()
+    builder_filters: typing.Sequence[
+        typing.Callable[
+            [ToNativeContext, Mapper, MutationContext, ResourceRepr, NativeBuilder], NativeBuilder
+        ]
+    ] = ()
+    native_filters: typing.Sequence[
+        typing.Callable[
+            [ToNativeContext, Mapper, MutationContext, ResourceRepr, typing.Any], typing.Any
+        ]
+    ] = ()
+
+
+@dataclasses.dataclass
+class NativeSideMeta:
+    builder_filters: typing.Sequence[
+        typing.Callable[
+            [
+                ToSerdeContext,
+                Mapper,
+                SerdeBuilderContext,
+                typing.Union[ResourceReprBuilder, ResourceIdReprBuilder],
+            ],
+            typing.Union[ResourceReprBuilder, ResourceIdReprBuilder],
+        ]
+    ] = ()
 
 
 @dataclasses.dataclass
 class Meta:
     attribute_mappings: typing.Optional[AttributeMappingType] = None
-    relationship_mappings: typing.Optional[RelatinoshipMappingType] = None
+    relationship_mappings: typing.Optional[RelationshipMappingType] = None
+    serde_side: SerdeSideMeta = dataclasses.field(default_factory=SerdeSideMeta)
+    native_side: NativeSideMeta = dataclasses.field(default_factory=NativeSideMeta)
 
 
 def handle_meta(meta: typing.Type) -> Meta:
@@ -62,6 +100,8 @@ def handle_meta(meta: typing.Type) -> Meta:
     return Meta(
         attribute_mappings=attrs.get("attribute_mappings"),
         relationship_mappings=attrs.get("relationship_mappings"),
+        serde_side=SerdeSideMeta(**attrs.get("serde_side", {})),
+        native_side=NativeSideMeta(**attrs.get("native_side", {})),
     )
 
 
