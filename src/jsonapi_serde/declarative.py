@@ -1,4 +1,5 @@
 import abc
+import enum
 import dataclasses
 import typing
 
@@ -105,6 +106,12 @@ def handle_meta(meta: typing.Type) -> Meta:
     )
 
 
+class AttributeFlags(enum.IntFlag):
+    NONE = 0
+    ALLOW_NULL = 1
+    REQUIRED_ON_CREATION = 2
+
+
 class InfoExtractor(metaclass=abc.ABCMeta):
     @abc.abstractmethod
     def extract_descriptor_name_for_serde(self, native_descr: NativeDescriptor) -> str:
@@ -121,9 +128,9 @@ class InfoExtractor(metaclass=abc.ABCMeta):
         ...  # pragma: nocover
 
     @abc.abstractmethod
-    def extract_attribute_nullability_for_serde(
+    def extract_attribute_flags_for_serde(
         self, native_attr_descr: NativeAttributeDescriptor
-    ) -> bool:
+    ) -> AttributeFlags:
         ...  # pragma: nocover
 
     @abc.abstractmethod
@@ -210,12 +217,12 @@ def build_mapping(
     attribute_mappings_proto = meta.attribute_mappings
     if attribute_mappings_proto is None:
         for native_attr_descr in native_descr.attributes:
+            flag = info_extractor.extract_attribute_flags_for_serde(native_attr_descr)
             resource_attr_descr = ResourceAttributeDescriptor(
                 name=info_extractor.extract_attribute_name_for_serde(native_attr_descr),
                 type=info_extractor.extract_attribute_type_for_serde(native_attr_descr),
-                allow_null=info_extractor.extract_attribute_nullability_for_serde(
-                    native_attr_descr
-                ),
+                allow_null=bool(flag & AttributeFlags.ALLOW_NULL),
+                required_on_creation=bool(flag & AttributeFlags.REQUIRED_ON_CREATION),
             )
             resource_attrs.append(resource_attr_descr)
             attribute_mappings.append(
@@ -238,12 +245,13 @@ def build_mapping(
             if isinstance(serde_side, str):
                 if isinstance(native_side, str):
                     native_attr_descr = native_attr_descrs_map[native_side]
+                    flag = info_extractor.extract_attribute_flags_for_serde(native_attr_descr)
+
                     resource_attr_descr = ResourceAttributeDescriptor(
                         name=serde_side,
                         type=info_extractor.extract_attribute_type_for_serde(native_attr_descr),
-                        allow_null=info_extractor.extract_attribute_nullability_for_serde(
-                            native_attr_descr
-                        ),
+                        allow_null=bool(flag & AttributeFlags.ALLOW_NULL),
+                        required_on_creation=bool(flag & AttributeFlags.REQUIRED_ON_CREATION),
                     )
                     resource_attrs.append(resource_attr_descr)
                     attribute_mappings.append(
@@ -260,15 +268,15 @@ def build_mapping(
                     )
                 elif isinstance(native_side, Tuple):
                     native_attr_descrs = [native_attr_descrs_map[n] for n in native_side.members]
+                    flags = [
+                        info_extractor.extract_attribute_flags_for_serde(native_attr_descr)
+                        for native_attr_descr in native_attr_descrs
+                    ]
                     resource_attr_descr = ResourceAttributeDescriptor(
                         name=serde_side,
                         type=tuple,
-                        allow_null=all(
-                            info_extractor.extract_attribute_nullability_for_serde(
-                                native_attr_descr
-                            )
-                            for native_attr_descr in native_attr_descrs
-                        ),
+                        allow_null=all(bool(f & AttributeFlags.ALLOW_NULL) for f in flags),
+                        required_on_creation=any(bool(f & AttributeFlags.REQUIRED_ON_CREATION) for f in flags),
                     )
                     resource_attrs.append(resource_attr_descr)
                     attribute_mappings.append(
@@ -288,14 +296,15 @@ def build_mapping(
             elif isinstance(serde_side, Tuple):
                 if isinstance(native_side, str):
                     native_attr_descr = native_attr_descrs_map[native_side]
-                    allow_null = info_extractor.extract_attribute_nullability_for_serde(
-                        native_attr_descr
-                    )
+                    flag = info_extractor.extract_attribute_flags_for_serde(native_attr_descr)
+                    allow_null = bool(flag & AttributeFlags.ALLOW_NULL)
+                    required_on_creation = bool(flag & AttributeFlags.REQUIRED_ON_CREATION)
                     resource_attr_descrs = [
                         ResourceAttributeDescriptor(
                             name=n,
                             type=assert_not_none(native_attr_descr.type),
                             allow_null=allow_null,
+                            required_on_creation=required_on_creation,
                         )
                         for n in serde_side.members
                     ]
@@ -321,14 +330,15 @@ def build_mapping(
             elif isinstance(serde_side, Dict):
                 if isinstance(native_side, str):
                     native_attr_descr = native_attr_descrs_map[native_side]
-                    allow_null = info_extractor.extract_attribute_nullability_for_serde(
-                        native_attr_descr
-                    )
+                    flag = info_extractor.extract_attribute_flags_for_serde(native_attr_descr)
+                    allow_null = bool(flag & AttributeFlags.ALLOW_NULL)
+                    required_on_creation = bool(flag & AttributeFlags.REQUIRED_ON_CREATION)
                     resource_attr_descrs = [
                         ResourceAttributeDescriptor(
                             name=n,
                             type=assert_not_none(native_attr_descr.type),
                             allow_null=allow_null,
+                            required_on_creation=required_on_creation,
                         )
                         for n in serde_side.members
                     ]

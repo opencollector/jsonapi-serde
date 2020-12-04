@@ -10,6 +10,8 @@ class RelationshipType(enum.Enum):
 class ResourceAttributeDescriptor(typing.Protocol):
     name: str
     type: type
+    allow_null: bool
+    required_on_creation: bool
 
 
 class ResourceRelationshipDescriptor(typing.Protocol):

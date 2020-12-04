@@ -98,12 +98,15 @@ class ReprDeserializer:
                     return (None, math.inf)
 
                 for attr_descr in resource_descr.attributes:
-                    if (
-                        typing.cast(
-                            OurErrorCollectingConverterContext, ctx
-                        ).require_complete_set_of_attributes
-                        and attr_descr.name not in attributes_
-                    ):
+                    if attr_descr.name not in attributes_:
+                        if (
+                            not typing.cast(
+                                OurErrorCollectingConverterContext, ctx
+                            ).require_complete_set_of_attributes
+                            or not attr_descr.required_on_creation 
+                        ):
+                            continue
+
                         ctx.validation_error_occurred(
                             JsonicDataValidationError(
                                 pointer,
@@ -114,7 +117,6 @@ class ReprDeserializer:
                             break
                         else:
                             continue
-                        v = None
                     else:
                         v = attributes_[attr_descr.name]
                     attributes.append(
@@ -158,7 +160,7 @@ class ReprDeserializer:
                 ResourceRepr(
                     type=typing.cast(str, converter._convert(ctx, pointer / "type", str, type_)[0]),
                     id=id_,
-                    attributes=tuple(attributes),
+                    attributes=attributes,
                     relationships=relationships,
                 ),
                 1.0,

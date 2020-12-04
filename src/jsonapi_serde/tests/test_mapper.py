@@ -332,7 +332,7 @@ class DummyPaginatedEndpoint(DummyEndpoint, PaginatedEndpoint):
 
 class TestMapper:
     @pytest.fixture
-    def bar_resource_descr(self):
+    def bar_resource_descr(self) -> ResourceDescriptor:
         return ResourceDescriptor(
             name="bar",
             attributes=[
@@ -340,18 +340,20 @@ class TestMapper:
                     name="d",
                     type=str,
                     allow_null=True,
+                    required_on_creation=False,
                 ),
                 ResourceAttributeDescriptor(
                     name="e",
                     type=int,
                     allow_null=False,
+                    required_on_creation=True,
                 ),
             ],
             relationships=[],
         )
 
     @pytest.fixture
-    def bar_native_descr(self):
+    def bar_native_descr(self) -> PlainNativeDescriptor:
         return PlainNativeDescriptor(
             Bar,
             attributes=[
@@ -369,11 +371,13 @@ class TestMapper:
                     name="f",
                     type=int,
                     allow_null=True,
+                    required_on_creation=False,
                 ),
                 ResourceAttributeDescriptor(
                     name="g",
                     type=str,
                     allow_null=False,
+                    required_on_creation=True,
                 ),
             ],
             relationships=[],
@@ -400,16 +404,19 @@ class TestMapper:
                     name="a",
                     type=str,
                     allow_null=False,
+                    required_on_creation=True,
                 ),
                 ResourceAttributeDescriptor(
                     name="b",
                     type=int,
                     allow_null=True,
+                    required_on_creation=False,
                 ),
                 ResourceAttributeDescriptor(
                     name="c",
                     type=int,
                     allow_null=False,
+                    required_on_creation=True,
                 ),
             ],
             relationships=[

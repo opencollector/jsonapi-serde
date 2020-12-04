@@ -6,7 +6,7 @@ import typing
 import sqlalchemy as sa  # type: ignore
 from sqlalchemy import orm  # type: ignore
 
-from ...declarative import InfoExtractor
+from ...declarative import AttributeFlags, InfoExtractor
 from ...exceptions import (
     InvalidIdentifierError,
     InvalidNativeObjectStateError,
@@ -155,16 +155,20 @@ class DefaultInfoExtractorImpl(InfoExtractor):
                 return class_
         raise NotImplementedError("unsupported property")
 
-    def extract_attribute_nullability_for_serde(
+    def extract_attribute_flags_for_serde(
         self, native_attr_descr: NativeAttributeDescriptor
-    ) -> bool:
+    ) -> AttributeFlags:
         assert isinstance(native_attr_descr, SQLAAttributeDescriptor)
+        retval: AttributeFlags = AttributeFlags.NONE
         if isinstance(native_attr_descr.property, orm.ColumnProperty):
             if not is_alien_clause(
                 native_attr_descr.property.parent, native_attr_descr.property.expression
             ):
-                return native_attr_descr.property.expression.nullable
-        return False
+                if native_attr_descr.property.expression.nullable:
+                    retval |= AttributeFlags.ALLOW_NULL
+                if native_attr_descr.property.expression.default is None:
+                    retval |= AttributeFlags.REQUIRED_ON_CREATION
+        return retval
 
     def extract_relationship_name_for_serde(
         self, native_rel_descr: NativeRelationshipDescriptor

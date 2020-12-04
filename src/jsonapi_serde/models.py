@@ -22,6 +22,7 @@ class ResourceAttributeDescriptor(ResourceMemberDescriptor):
     name: str
     type: typing.Type[AttributeValue]
     allow_null: bool
+    required_on_creation: bool
 
     def extract_value(
         self, repr_: ResourceRepr, source: typing.Optional[Source] = None
@@ -37,10 +38,12 @@ class ResourceAttributeDescriptor(ResourceMemberDescriptor):
         name: str,
         type: typing.Type,
         allow_null: bool,
+        required_on_creation: bool,
     ):
         self.name = name
         self.type = type
         self.allow_null = allow_null
+        self.required_on_creation = required_on_creation
 
 
 class ResourceRelationshipDescriptor(ResourceMemberDescriptor):
