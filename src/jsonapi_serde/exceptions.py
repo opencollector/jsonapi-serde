@@ -26,7 +26,7 @@ class AttributeNotFoundError(JSONAPIMapperError):
 
     @property
     def message(self):
-        return f'no such attribute ({self.name}) not found in "{self.resource.name}"'
+        return f'no such attribute ({self.name}) found in "{self.resource.name}"'
 
     def __init__(
         self,
@@ -53,7 +53,7 @@ class RelationshipNotFoundError(JSONAPIMapperError):
 
     @property
     def message(self):
-        return f'no such relationship ({self.name}) not found in "{self.resource.name}"'
+        return f'no such relationship ({self.name}) found in "{self.resource.name}"'
 
     def __init__(
         self,
