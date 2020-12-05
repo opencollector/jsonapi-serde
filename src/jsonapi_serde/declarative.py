@@ -22,7 +22,7 @@ from .mapper import (
     NativeFilter,
     RelationshipMapping,
     ResourceFilter,
-    SerdeBuilderContext,
+    SerdeBuilderFilter,
     ToManyAttributeMapping,
     ToNativeContext,
     ToOneAttributeMapping,
@@ -35,7 +35,6 @@ from .models import (
     ResourceToManyRelationshipDescriptor,
     ResourceToOneRelationshipDescriptor,
 )
-from .serde.builders import ResourceIdReprBuilder, ResourceReprBuilder
 from .serde.models import AttributeValue, Source
 
 
@@ -121,48 +120,28 @@ RelationshipMappingType = typing.Sequence[typing.Tuple[str, str]]
 
 
 @dataclasses.dataclass
-class SerdeSideMeta:
-    attributes: typing.Union[typing.Sequence[Attr], typing.Mapping[str, Attr]] = ()
-    attribute_overrides: typing.Mapping[str, Attr] = dataclasses.field(default_factory=dict)
-    resource_filters: typing.Sequence[ResourceFilter] = ()
-    builder_filters: typing.Sequence[NativeBuilderFilter] = ()
-    native_filters: typing.Sequence[NativeFilter[typing.Any]] = ()
-
-
-@dataclasses.dataclass
-class NativeSideMeta:
-    builder_filters: typing.Sequence[
-        typing.Callable[
-            [
-                ToSerdeContext,
-                Mapper,
-                SerdeBuilderContext,
-                typing.Union[ResourceReprBuilder, ResourceIdReprBuilder],
-            ],
-            typing.Union[ResourceReprBuilder, ResourceIdReprBuilder],
-        ]
-    ] = ()
-
-
-@dataclasses.dataclass
 class Meta:
     attribute_mappings: typing.Optional[AttributeMappingType] = None
     relationship_mappings: typing.Optional[RelationshipMappingType] = None
-    serde_side: SerdeSideMeta = dataclasses.field(default_factory=SerdeSideMeta)
-    native_side: NativeSideMeta = dataclasses.field(default_factory=NativeSideMeta)
+    attributes: typing.Sequence[Attr] = ()
+    attribute_overrides: typing.Mapping[str, Attr] = dataclasses.field(default_factory=dict)
+    resource_filters: typing.Sequence[ResourceFilter] = ()
+    native_builder_filters: typing.Sequence[NativeBuilderFilter] = ()
+    native_filters: typing.Sequence[NativeFilter[typing.Any]] = ()
+    serde_builder_filters: typing.Sequence[SerdeBuilderFilter] = ()
 
 
 def handle_meta(meta: typing.Type) -> Meta:
     attrs = {k: v for k, v in vars(meta).items() if not k.startswith("__")}
-    serde_side = attrs.get("serde_side", {})
-    if "attributes" in serde_side:
-        attributes: typing.Sequence[Attr]
+    attributes: typing.Sequence[Attr] = ()
+
+    if "attributes" in attrs:
         _attributes = typing.cast(
             typing.Union[
                 typing.Sequence[Attr],
                 typing.Mapping[str, Attr],
             ],
-            serde_side["attributes"],
+            attrs["attributes"],
         )
         if isinstance(_attributes, collections.abc.Mapping):
             attributes = [
@@ -171,12 +150,15 @@ def handle_meta(meta: typing.Type) -> Meta:
         else:
             assert isinstance(_attributes, collections.abc.Sequence)
             attributes = _attributes
-        serde_side["attributes"] = attributes
     return Meta(
         attribute_mappings=attrs.get("attribute_mappings"),
         relationship_mappings=attrs.get("relationship_mappings"),
-        serde_side=SerdeSideMeta(**serde_side),
-        native_side=NativeSideMeta(**attrs.get("native_side", {})),
+        attributes=attributes,
+        attribute_overrides=attrs.get("attribute_overrides", ()),
+        resource_filters=attrs.get("resource_filters", ()),
+        native_builder_filters=attrs.get("native_builder_filters", ()),
+        native_filters=attrs.get("native_filters", ()),
+        serde_builder_filters=attrs.get("serde_builder_filters", ()),
     )
 
 
@@ -335,7 +317,7 @@ class MapperBuilder:
             elif predefined_attrs is not None:
                 if name not in predefined_attrs:
                     raise InvalidDeclarationError(
-                        f"descriptor for attribute {name} must exist in serde_side.attributes"
+                        f"descriptor for attribute {name} must exist in attributes"
                     )
                 tpl = predefined_attrs[name]
             resource_attr_descr = create_resource_attribute_descriptor_with_template(
@@ -643,15 +625,15 @@ class MapperBuilder:
         attribute_mappings_proto = meta.attribute_mappings
         predefined_attrs: typing.Optional[typing.Mapping[str, Attr]] = None
 
-        if meta.serde_side.attributes:
-            attrs = meta.serde_side.attributes
+        if meta.attributes:
+            attrs = meta.attributes
             if isinstance(attrs, collections.abc.Mapping):
                 predefined_attrs = attrs
             elif isinstance(attrs, collections.abc.Sequence):
                 predefined_attrs = {assert_not_unspecified(attr.name): attr for attr in attrs}
             else:
                 raise AssertionError("should never get here")
-        attr_overrides = meta.serde_side.attribute_overrides
+        attr_overrides = meta.attribute_overrides
 
         if attribute_mappings_proto is None:
             resource_attrs, attribute_mappings = self.build_attribute_mapping_auto(

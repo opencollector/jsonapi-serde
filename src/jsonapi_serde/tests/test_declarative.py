@@ -138,13 +138,11 @@ class TestDeclarative:
         )
 
         class Meta:
-            serde_side = {
-                "attributes": {
-                    "c": Attr(
-                        type=int,
-                        read_only=True,
-                    ),
-                },
+            attributes = {
+                "c": Attr(
+                    type=int,
+                    read_only=True,
+                ),
             }
 
         with pytest.raises(InvalidDeclarationError):
@@ -164,21 +162,19 @@ class TestDeclarative:
         )
 
         class Meta:
-            serde_side = {
-                "attributes": {
-                    "a": Attr(
-                        type=str,
-                        read_only=True,
-                    ),
-                    "b": Attr(
-                        type=int,
-                        read_only=True,
-                    ),
-                    "c": Attr(
-                        type=int,
-                        read_only=True,
-                    ),
-                },
+            attributes = {
+                "a": Attr(
+                    type=str,
+                    read_only=True,
+                ),
+                "b": Attr(
+                    type=int,
+                    read_only=True,
+                ),
+                "c": Attr(
+                    type=int,
+                    read_only=True,
+                ),
             }
 
         foo_descr, attr_mappings, rel_mappings = build_mapping(

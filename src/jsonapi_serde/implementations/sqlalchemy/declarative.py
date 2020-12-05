@@ -128,6 +128,10 @@ class Declarative:
             native_descr=native_descr,
             attribute_mappings=attribute_mappings,
             relationship_mappings=relationship_mappings,
+            resource_filters=meta.resource_filters,
+            native_builder_filters=meta.native_builder_filters,
+            native_filters=meta.native_filters,
+            serde_builder_filters=meta.serde_builder_filters,
         )
         self._sa_mapper_to_mapper_map[sa_mapper] = mapper
         return mapper
