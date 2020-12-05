@@ -7,9 +7,7 @@ import typing
 from .deferred import Deferred
 from .exceptions import InvalidDeclarationError
 from .interfaces import (
-    MutationContext,
     NativeAttributeDescriptor,
-    NativeBuilder,
     NativeDescriptor,
     NativeRelationshipDescriptor,
     NativeToManyRelationshipDescriptor,
@@ -20,7 +18,10 @@ from .mapper import (
     Direction,
     ManyToOneAttributeMapping,
     Mapper,
+    NativeBuilderFilter,
+    NativeFilter,
     RelationshipMapping,
+    ResourceFilter,
     SerdeBuilderContext,
     ToManyAttributeMapping,
     ToNativeContext,
@@ -35,7 +36,7 @@ from .models import (
     ResourceToOneRelationshipDescriptor,
 )
 from .serde.builders import ResourceIdReprBuilder, ResourceReprBuilder
-from .serde.models import AttributeValue, ResourceRepr, Source
+from .serde.models import AttributeValue, Source
 
 
 class Members:
@@ -123,19 +124,9 @@ RelationshipMappingType = typing.Sequence[typing.Tuple[str, str]]
 class SerdeSideMeta:
     attributes: typing.Union[typing.Sequence[Attr], typing.Mapping[str, Attr]] = ()
     attribute_overrides: typing.Mapping[str, Attr] = dataclasses.field(default_factory=dict)
-    resource_filters: typing.Sequence[
-        typing.Callable[[ToNativeContext, Mapper, ResourceRepr], ResourceRepr]
-    ] = ()
-    builder_filters: typing.Sequence[
-        typing.Callable[
-            [ToNativeContext, Mapper, MutationContext, ResourceRepr, NativeBuilder], NativeBuilder
-        ]
-    ] = ()
-    native_filters: typing.Sequence[
-        typing.Callable[
-            [ToNativeContext, Mapper, MutationContext, ResourceRepr, typing.Any], typing.Any
-        ]
-    ] = ()
+    resource_filters: typing.Sequence[ResourceFilter] = ()
+    builder_filters: typing.Sequence[NativeBuilderFilter] = ()
+    native_filters: typing.Sequence[NativeFilter[typing.Any]] = ()
 
 
 @dataclasses.dataclass

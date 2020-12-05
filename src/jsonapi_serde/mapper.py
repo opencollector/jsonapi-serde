@@ -123,6 +123,31 @@ class Direction(enum.IntEnum):
     BIDI = 3
 
 
+class SiteContext(enum.Enum):
+    CREATE = 1
+    UPDATE = 2
+
+
+ResourceFilter = typing.Callable[[ToNativeContext, "Mapper", ResourceRepr], ResourceRepr]
+
+
+NativeBuilderFilter = typing.Callable[
+    [ToNativeContext, "Mapper", MutationContext, SiteContext, ResourceRepr, NativeBuilder],
+    NativeBuilder,
+]
+
+
+SerdeBuilderFilter = typing.Callable[
+    [
+        ToSerdeContext,
+        "Mapper",
+        "SerdeBuilderContext",
+        typing.Union[ResourceReprBuilder, ResourceIdReprBuilder],
+    ],
+    typing.Union[ResourceReprBuilder, ResourceIdReprBuilder],
+]
+
+
 Ta0 = typing.TypeVar("Ta0")
 
 
@@ -361,32 +386,19 @@ class SerdeBuilderContext(metaclass=abc.ABCMeta):
 Tm = typing.TypeVar("Tm")
 
 
+NativeFilter = typing.Callable[
+    [ToNativeContext, "Mapper", MutationContext, SiteContext, ResourceRepr, Tm], Tm
+]
+
+
 class Mapper(typing.Generic[Tm]):
     resource_descr: ResourceDescriptor
     native_descr: NativeDescriptor
     ctx: typing.Optional["MapperContext"]
-    resource_filters: typing.Sequence[
-        typing.Callable[[ToNativeContext, "Mapper", ResourceRepr], ResourceRepr]
-    ]
-    native_builder_filters: typing.Sequence[
-        typing.Callable[
-            [ToNativeContext, "Mapper", MutationContext, ResourceRepr, NativeBuilder], NativeBuilder
-        ]
-    ]
-    native_filters: typing.Sequence[
-        typing.Callable[[ToNativeContext, "Mapper", MutationContext, ResourceRepr, Tm], Tm]
-    ]
-    serde_builder_filters: typing.Sequence[
-        typing.Callable[
-            [
-                ToSerdeContext,
-                "Mapper",
-                SerdeBuilderContext,
-                typing.Union[ResourceReprBuilder, ResourceIdReprBuilder],
-            ],
-            typing.Union[ResourceReprBuilder, ResourceIdReprBuilder],
-        ]
-    ]
+    resource_filters: typing.Sequence[ResourceFilter]
+    native_builder_filters: typing.Sequence[NativeBuilderFilter]
+    native_filters: typing.Sequence[NativeFilter[Tm]]
+    serde_builder_filters: typing.Sequence[SerdeBuilderFilter]
 
     _attribute_mappings: typing.Sequence[AttributeMapping[Tm]]
     _relationship_mappings: typing.Sequence[RelationshipMapping]
@@ -506,12 +518,12 @@ class Mapper(typing.Generic[Tm]):
                     raise AssertionError("should never get here!")
 
         for nbf in self.native_builder_filters:
-            builder = nbf(ctx, self, mctx, serde, builder)
+            builder = nbf(ctx, self, mctx, SiteContext.CREATE, serde, builder)
 
         native = builder(mctx)
 
         for nf in self.native_filters:
-            native = nf(ctx, self, mctx, serde, native)
+            native = nf(ctx, self, mctx, SiteContext.CREATE, serde, native)
         return native
 
     def update_with_serde(
@@ -561,12 +573,12 @@ class Mapper(typing.Generic[Tm]):
                     raise AssertionError("should never get here!")
 
         for nbf in self.native_builder_filters:
-            builder = nbf(ctx, self, mctx, serde, builder)
+            builder = nbf(ctx, self, mctx, SiteContext.UPDATE, serde, builder)
 
         native = builder(mctx)
 
         for nf in self.native_filters:
-            native = nf(ctx, self, mctx, serde, native)
+            native = nf(ctx, self, mctx, SiteContext.UPDATE, serde, native)
         return native
 
     def update_to_one_rel_with_serde(
@@ -754,26 +766,9 @@ class Mapper(typing.Generic[Tm]):
         resource_filters: typing.Sequence[
             typing.Callable[[ToNativeContext, "Mapper", ResourceRepr], ResourceRepr]
         ] = (),
-        native_builder_filters: typing.Sequence[
-            typing.Callable[
-                [ToNativeContext, "Mapper", MutationContext, ResourceRepr, NativeBuilder],
-                NativeBuilder,
-            ]
-        ] = (),
-        native_filters: typing.Sequence[
-            typing.Callable[[ToNativeContext, "Mapper", MutationContext, ResourceRepr, Tm], Tm]
-        ] = (),
-        serde_builder_filters: typing.Sequence[
-            typing.Callable[
-                [
-                    ToSerdeContext,
-                    "Mapper",
-                    SerdeBuilderContext,
-                    typing.Union[ResourceReprBuilder, ResourceIdReprBuilder],
-                ],
-                typing.Union[ResourceReprBuilder, ResourceIdReprBuilder],
-            ]
-        ] = (),
+        native_builder_filters: typing.Sequence[NativeBuilderFilter] = (),
+        native_filters: typing.Sequence[NativeFilter[Tm]] = (),
+        serde_builder_filters: typing.Sequence[SerdeBuilderFilter] = (),
     ):
         self.resource_descr = resource_descr
         self.native_descr = native_descr
@@ -979,29 +974,10 @@ class MapperContext:
         native_descr: NativeDescriptor,
         attribute_mappings: typing.Sequence[AttributeMapping],
         relationship_mappings: typing.Sequence[RelationshipMapping],
-        resource_filters: typing.Sequence[
-            typing.Callable[[ToNativeContext, "Mapper", ResourceRepr], ResourceRepr]
-        ] = (),
-        native_builder_filters: typing.Sequence[
-            typing.Callable[
-                [ToNativeContext, "Mapper", MutationContext, ResourceRepr, NativeBuilder],
-                NativeBuilder,
-            ]
-        ] = (),
-        native_filters: typing.Sequence[
-            typing.Callable[[ToNativeContext, "Mapper", MutationContext, ResourceRepr, Tm], Tm]
-        ] = (),
-        serde_builder_filters: typing.Sequence[
-            typing.Callable[
-                [
-                    ToSerdeContext,
-                    "Mapper",
-                    SerdeBuilderContext,
-                    typing.Union[ResourceReprBuilder, ResourceIdReprBuilder],
-                ],
-                typing.Union[ResourceReprBuilder, ResourceIdReprBuilder],
-            ]
-        ] = (),
+        resource_filters: typing.Sequence[ResourceFilter] = (),
+        native_builder_filters: typing.Sequence[NativeBuilderFilter] = (),
+        native_filters: typing.Sequence[NativeFilter[Tm]] = (),
+        serde_builder_filters: typing.Sequence[SerdeBuilderFilter] = (),
     ) -> Mapper:
         mapper = Mapper[typing.Any](
             resource_descr=resource_descr,
