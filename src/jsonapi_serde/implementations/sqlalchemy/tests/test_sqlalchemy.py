@@ -14,7 +14,7 @@ from ....interfaces import (
     NativeToOneRelationshipDescriptor,
     PaginatedEndpoint,
 )
-from ....mapper import AttributeMapping, Mapper, RelationshipMapping
+from ....mapper import AttributeMapping, Direction, Mapper, RelationshipMapping
 from ....mapper import ToNativeContext as _ToNativeContext
 from ....mapper import ToOneAttributeMapping
 from ....mapper import ToSerdeContext as _ToSerdeContext
@@ -184,14 +184,14 @@ class TestSimple:
             name="bar",
             attributes=[
                 ResourceAttributeDescriptor(
-                    name="d",
                     type=str,
+                    name="d",
                     allow_null=False,
                     required_on_creation=True,
                 ),
                 ResourceAttributeDescriptor(
-                    name="e",
                     type=int,
+                    name="e",
                     allow_null=False,
                     required_on_creation=True,
                 ),
@@ -205,14 +205,14 @@ class TestSimple:
             name="baz",
             attributes=[
                 ResourceAttributeDescriptor(
-                    name="f",
                     type=int,
+                    name="f",
                     allow_null=False,
                     required_on_creation=True,
                 ),
                 ResourceAttributeDescriptor(
-                    name="g",
                     type=str,
+                    name="g",
                     allow_null=False,
                     required_on_creation=True,
                 ),
@@ -228,20 +228,20 @@ class TestSimple:
             name="foo",
             attributes=[
                 ResourceAttributeDescriptor(
-                    name="a",
                     type=str,
+                    name="a",
                     allow_null=False,
                     required_on_creation=True,
                 ),
                 ResourceAttributeDescriptor(
+                    type=int,
                     name="b",
-                    type=int,
                     allow_null=False,
                     required_on_creation=True,
                 ),
                 ResourceAttributeDescriptor(
-                    name="c",
                     type=int,
+                    name="c",
                     allow_null=False,
                     required_on_creation=True,
                 ),
@@ -330,10 +330,11 @@ class TestSimple:
             foo_native_descr,
             attribute_mappings=[
                 ToOneAttributeMapping[Foo](
-                    foo_resource_descr.attributes[na.name],
-                    na,
-                    to_serde_identity_mapping,
-                    to_native_identity_mapping,
+                    serde_side=foo_resource_descr.attributes[na.name],
+                    native_side=na,
+                    to_serde_factory=to_serde_identity_mapping,
+                    to_native_factory=to_native_identity_mapping,
+                    direction=Direction.BIDI,
                 )
                 for na in foo_native_descr.attributes
                 if na.name in foo_resource_descr.attributes
@@ -352,10 +353,11 @@ class TestSimple:
             bar_native_descr,
             attribute_mappings=[
                 ToOneAttributeMapping[Bar](
-                    bar_resource_descr.attributes[na.name],
-                    na,
-                    to_serde_identity_mapping,
-                    to_native_identity_mapping,
+                    serde_side=bar_resource_descr.attributes[na.name],
+                    native_side=na,
+                    to_serde_factory=to_serde_identity_mapping,
+                    to_native_factory=to_native_identity_mapping,
+                    direction=Direction.BIDI,
                 )
                 for na in bar_native_descr.attributes
                 if na.name in bar_resource_descr.attributes
@@ -374,10 +376,11 @@ class TestSimple:
             baz_native_descr,
             attribute_mappings=[
                 ToOneAttributeMapping[Baz](
-                    baz_resource_descr.attributes[na.name],
-                    na,
-                    to_serde_identity_mapping,
-                    to_native_identity_mapping,
+                    serde_side=baz_resource_descr.attributes[na.name],
+                    native_side=na,
+                    to_serde_factory=to_serde_identity_mapping,
+                    to_native_factory=to_native_identity_mapping,
+                    direction=Direction.BIDI,
                 )
                 for na in baz_native_descr.attributes
                 if na.name in baz_resource_descr.attributes
@@ -629,14 +632,14 @@ class TestComposite:
             name="bar",
             attributes=[
                 ResourceAttributeDescriptor(
-                    name="d",
                     type=str,
+                    name="d",
                     allow_null=False,
                     required_on_creation=True,
                 ),
                 ResourceAttributeDescriptor(
-                    name="e",
                     type=int,
+                    name="e",
                     allow_null=False,
                     required_on_creation=True,
                 ),
@@ -650,14 +653,14 @@ class TestComposite:
             name="baz",
             attributes=[
                 ResourceAttributeDescriptor(
-                    name="f",
                     type=int,
+                    name="f",
                     allow_null=False,
                     required_on_creation=True,
                 ),
                 ResourceAttributeDescriptor(
-                    name="g",
                     type=str,
+                    name="g",
                     allow_null=False,
                     required_on_creation=True,
                 ),
@@ -673,20 +676,20 @@ class TestComposite:
             name="foo",
             attributes=[
                 ResourceAttributeDescriptor(
-                    name="a",
                     type=str,
+                    name="a",
                     allow_null=False,
                     required_on_creation=True,
                 ),
                 ResourceAttributeDescriptor(
+                    type=int,
                     name="b",
-                    type=int,
                     allow_null=False,
                     required_on_creation=True,
                 ),
                 ResourceAttributeDescriptor(
-                    name="c",
                     type=int,
+                    name="c",
                     allow_null=False,
                     required_on_creation=True,
                 ),
@@ -775,10 +778,11 @@ class TestComposite:
             foo_native_descr,
             attribute_mappings=[
                 ToOneAttributeMapping[Foo](
-                    foo_resource_descr.attributes[na.name],
-                    na,
-                    to_serde_identity_mapping,
-                    to_native_identity_mapping,
+                    serde_side=foo_resource_descr.attributes[na.name],
+                    native_side=na,
+                    to_serde_factory=to_serde_identity_mapping,
+                    to_native_factory=to_native_identity_mapping,
+                    direction=Direction.BIDI,
                 )
                 for na in foo_native_descr.attributes
                 if na.name in foo_resource_descr.attributes
@@ -797,10 +801,11 @@ class TestComposite:
             bar_native_descr,
             attribute_mappings=[
                 ToOneAttributeMapping[Bar](
-                    bar_resource_descr.attributes[na.name],
-                    na,
-                    to_serde_identity_mapping,
-                    to_native_identity_mapping,
+                    serde_side=bar_resource_descr.attributes[na.name],
+                    native_side=na,
+                    to_serde_factory=to_serde_identity_mapping,
+                    to_native_factory=to_native_identity_mapping,
+                    direction=Direction.BIDI,
                 )
                 for na in bar_native_descr.attributes
                 if na.name in bar_resource_descr.attributes
@@ -819,10 +824,11 @@ class TestComposite:
             baz_native_descr,
             attribute_mappings=[
                 ToOneAttributeMapping[Baz](
-                    baz_resource_descr.attributes[na.name],
-                    na,
-                    to_serde_identity_mapping,
-                    to_native_identity_mapping,
+                    serde_side=baz_resource_descr.attributes[na.name],
+                    native_side=na,
+                    to_serde_factory=to_serde_identity_mapping,
+                    to_native_factory=to_native_identity_mapping,
+                    direction=Direction.BIDI,
                 )
                 for na in baz_native_descr.attributes
                 if na.name in baz_resource_descr.attributes

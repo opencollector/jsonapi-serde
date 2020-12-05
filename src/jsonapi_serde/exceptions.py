@@ -5,6 +5,13 @@ from .serde.models import Source
 from .serde.utils import english_enumerate
 
 
+class InvalidDeclarationError(Exception):
+    message: str
+
+    def __init__(self, message):
+        self.message = message
+
+
 class JSONAPIMapperError(Exception, metaclass=abc.ABCMeta):
     @property
     @abc.abstractmethod

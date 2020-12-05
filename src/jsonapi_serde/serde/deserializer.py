@@ -103,7 +103,8 @@ class ReprDeserializer:
                             not typing.cast(
                                 OurErrorCollectingConverterContext, ctx
                             ).require_complete_set_of_attributes
-                            or not attr_descr.required_on_creation 
+                            or not attr_descr.required_on_creation
+                            or attr_descr.read_only
                         ):
                             continue
 

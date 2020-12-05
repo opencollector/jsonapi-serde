@@ -1,5 +1,6 @@
 import abc
 import collections.abc
+import enum
 import typing
 
 from .exceptions import (
@@ -46,6 +47,7 @@ from .serde.models import (
     Source,
 )
 from .serde.utils import JSONPointer
+from .utils import assert_not_none
 
 
 class ToSerdeContext(metaclass=abc.ABCMeta):
@@ -114,11 +116,19 @@ class ToNativeContext(metaclass=abc.ABCMeta):
         ...  # pragma: nocover
 
 
+class Direction(enum.IntEnum):
+    NONE = 0
+    TO_SERDE_ONLY = 1
+    TO_NATIVE_ONLY = 2
+    BIDI = 3
+
+
 Ta0 = typing.TypeVar("Ta0")
 
 
 class AttributeMapping(typing.Generic[Ta0], metaclass=abc.ABCMeta):
     mapper: typing.Optional["Mapper"] = None
+    direction: Direction = Direction.NONE
 
     def bind(self, mapper: "Mapper") -> "AttributeMapping[Ta0]":
         assert self.mapper is None
@@ -158,12 +168,16 @@ class ToOneAttributeMapping(AttributeMapping[Ta1], typing.Generic[Ta1]):
         return [self.native_side]
 
     def to_serde(self, ctx: ToSerdeContext, blob: Ta0, builder: ResourceReprBuilder) -> None:
+        if self.direction is Direction.TO_NATIVE_ONLY:
+            return
         builder.add_attribute(
-            self.serde_side.name,
+            assert_not_none(self.serde_side.name),
             self.to_serde_factory(ctx, self.native_side.fetch_value(blob)),  # type: ignore
         )
 
     def to_native(self, ctx: ToNativeContext, blob: ResourceRepr, builder: NativeBuilder) -> None:
+        if self.direction is Direction.TO_SERDE_ONLY:
+            return
         builder[self.native_side] = self.to_native_factory(  # type: ignore
             ctx,  # type: ignore
             (
@@ -184,11 +198,13 @@ class ToOneAttributeMapping(AttributeMapping[Ta1], typing.Generic[Ta1]):
         to_native_factory: typing.Callable[
             [ToNativeContext, Source, AttributeValue], typing.Sequence[typing.Any]
         ],
+        direction: Direction,
     ):
         self.serde_side = serde_side
         self.native_side = native_side
         self.to_serde_factory = to_serde_factory  # type: ignore
         self.to_native_factory = to_native_factory  # type: ignore
+        self.direction = direction
 
 
 Ta2 = typing.TypeVar("Ta2")
@@ -209,14 +225,18 @@ class ToManyAttributeMapping(AttributeMapping[Ta2], typing.Generic[Ta2]):
         return self.native_side
 
     def to_serde(self, ctx: ToSerdeContext, blob: Ta0, builder: ResourceReprBuilder) -> None:
+        if self.direction is Direction.TO_NATIVE_ONLY:
+            return
         builder.add_attribute(
-            self.serde_side.name,
+            assert_not_none(self.serde_side.name),
             self.to_serde_factory(  # type: ignore
                 ctx, [n.fetch_value(blob) for n in self.native_side]  # type: ignore
             ),
         )
 
     def to_native(self, ctx: ToNativeContext, blob: ResourceRepr, builder: NativeBuilder) -> None:
+        if self.direction is Direction.TO_SERDE_ONLY:
+            return
         result = self.to_native_factory(  # type: ignore
             ctx,  # type: ignore
             (
@@ -243,11 +263,13 @@ class ToManyAttributeMapping(AttributeMapping[Ta2], typing.Generic[Ta2]):
         to_native_factory: typing.Callable[
             [ToNativeContext, Source, AttributeValue], typing.Sequence[typing.Any]
         ],
+        direction: Direction,
     ):
         self.serde_side = serde_side
         self.native_side = native_side
         self.to_serde_factory = to_serde_factory  # type: ignore
         self.to_native_factory = to_native_factory  # type: ignore
+        self.direction = direction
 
 
 Ta3 = typing.TypeVar("Ta3")
@@ -268,15 +290,19 @@ class ManyToOneAttributeMapping(AttributeMapping[Ta3], typing.Generic[Ta3]):
         return [self.native_side]
 
     def to_serde(self, ctx: ToSerdeContext, blob: Ta0, builder: ResourceReprBuilder) -> None:
+        if self.direction is Direction.TO_NATIVE_ONLY:
+            return
         result = self.to_serde_factory(ctx, self.native_side.fetch_value(blob))  # type: ignore
         if len(result) != len(self.serde_side):
             raise ValueError(
                 f"native side expected to yield {len(self.serde_side)} items, got {len(result)}"
             )
         for s, v in zip(self.serde_side, result):
-            builder.add_attribute(s.name, v)
+            builder.add_attribute(assert_not_none(s.name), v)
 
     def to_native(self, ctx: ToNativeContext, blob: ResourceRepr, builder: NativeBuilder) -> None:
+        if self.direction is Direction.TO_SERDE_ONLY:
+            return
         builder[self.native_side] = self.to_native_factory(  # type: ignore
             ctx,  # type: ignore
             (
@@ -298,11 +324,13 @@ class ManyToOneAttributeMapping(AttributeMapping[Ta3], typing.Generic[Ta3]):
             [ToNativeContext, typing.Sequence[Source], typing.Sequence[AttributeValue]],
             typing.Any,
         ],
+        direction: Direction,
     ):
         self.serde_side = serde_side
         self.native_side = native_side
         self.to_serde_factory = to_serde_factory  # type: ignore
         self.to_native_factory = to_native_factory  # type: ignore
+        self.direction = direction
 
 
 class RelationshipMapping:
@@ -380,7 +408,9 @@ class Mapper(typing.Generic[Tm]):
     def relationship_mappings(self, value: typing.Iterable[RelationshipMapping]) -> None:
         mappings = [m.bind(self) for m in value]
         self._relationship_mappings = mappings
-        self._relationship_mappings_by_serde_name = {m.serde_side.name: m for m in mappings}
+        self._relationship_mappings_by_serde_name = {
+            assert_not_none(m.serde_side.name): m for m in mappings
+        }
 
     def _build_native_to_one(
         self,
@@ -676,7 +706,7 @@ class Mapper(typing.Generic[Tm]):
             self.build_serde_to_one_relationship(
                 ctx,
                 rctx,
-                builder.next_to_one_relationship(rm.serde_side.name),
+                builder.next_to_one_relationship(assert_not_none(rm.serde_side.name)),
                 native,
                 rm,
             )
@@ -684,7 +714,7 @@ class Mapper(typing.Generic[Tm]):
             self.build_serde_to_many_relationship(
                 ctx,
                 rctx,
-                builder.next_to_many_relationship(rm.serde_side.name),
+                builder.next_to_many_relationship(assert_not_none(rm.serde_side.name)),
                 native,
                 rm,
             )

@@ -5,11 +5,12 @@ from .deferred import Deferred
 from .exceptions import AttributeNotFoundError, RelationshipNotFoundError
 from .serde.interfaces import RelationshipType
 from .serde.models import AttributeValue, LinkageRepr, ResourceRepr, Source
+from .utils import assert_not_none
 
 
 class ResourceMemberDescriptor:
     parent: typing.Optional["ResourceDescriptor"] = None
-    name: str
+    name: typing.Optional[str]
 
     T = typing.TypeVar("T", bound="ResourceMemberDescriptor")
 
@@ -17,16 +18,22 @@ class ResourceMemberDescriptor:
         self.parent = parent
         return self
 
+    def set_name(self: T, name: str) -> T:
+        self.name = name
+        return self
+
 
 class ResourceAttributeDescriptor(ResourceMemberDescriptor):
-    name: str
     type: typing.Type[AttributeValue]
     allow_null: bool
     required_on_creation: bool
+    read_only: bool
+    write_only: bool
 
     def extract_value(
         self, repr_: ResourceRepr, source: typing.Optional[Source] = None
     ) -> AttributeValue:
+        assert self.name is not None
         try:
             return repr_.attributes[self.name]
         except KeyError:
@@ -35,20 +42,23 @@ class ResourceAttributeDescriptor(ResourceMemberDescriptor):
 
     def __init__(
         self,
-        name: str,
         type: typing.Type,
-        allow_null: bool,
-        required_on_creation: bool,
+        name: typing.Optional[str] = None,
+        allow_null: bool = False,
+        required_on_creation: bool = True,
+        read_only: bool = False,
+        write_only: bool = False,
     ):
         self.name = name
         self.type = type
         self.allow_null = allow_null
         self.required_on_creation = required_on_creation
+        self.read_only = read_only
+        self.write_only = write_only
 
 
 class ResourceRelationshipDescriptor(ResourceMemberDescriptor):
     _destination: typing.Union["ResourceDescriptor", Deferred["ResourceDescriptor"]]
-    name: str
     type: RelationshipType
 
     @property
@@ -62,10 +72,10 @@ class ResourceRelationshipDescriptor(ResourceMemberDescriptor):
         self, repr_: ResourceRepr, source: typing.Optional[Source] = None
     ) -> LinkageRepr:
         try:
-            return repr_.relationships[self.name]
+            return repr_.relationships[assert_not_none(self.name)]
         except KeyError:
             assert self.parent is not None
-            raise RelationshipNotFoundError(self.parent, self.name, source)
+            raise RelationshipNotFoundError(self.parent, assert_not_none(self.name), source)
 
     def __init__(
         self,
@@ -97,5 +107,9 @@ class ResourceDescriptor:
         relationships: typing.Iterable[ResourceRelationshipDescriptor],
     ):
         self.name = name
-        self.attributes = OrderedDict(((attr.name, attr.bind(self)) for attr in attributes))
-        self.relationships = OrderedDict(((rel.name, rel.bind(self)) for rel in relationships))
+        self.attributes = OrderedDict(
+            ((assert_not_none(attr.name), attr.bind(self)) for attr in attributes)
+        )
+        self.relationships = OrderedDict(
+            ((assert_not_none(rel.name), rel.bind(self)) for rel in relationships)
+        )
