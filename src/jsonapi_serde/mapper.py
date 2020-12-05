@@ -427,7 +427,7 @@ class Mapper(typing.Generic[Tm]):
         assert not isinstance(serde, collections.abc.Sequence)
         if ctx.query_descriptor_by_type_name(serde.type) != dest_mapper.resource_descr:
             raise InvalidStructureError(
-                "resource type {serde.type} is not acceptable in relationship {serde_side.name}"
+                f"resource type {serde.type} is not acceptable in relationship {serde_side.name}"
             )
         id_ = dest_mapper.get_native_identity_by_serde(ctx, serde)
         builder.set(id_)
@@ -445,7 +445,7 @@ class Mapper(typing.Generic[Tm]):
         for dest_repr in typing.cast(typing.Iterable[ResourceIdRepr], serde):
             if ctx.query_descriptor_by_type_name(dest_repr.type) != dest_mapper.resource_descr:
                 raise InvalidStructureError(
-                    "resource type {dest_repr.type} is not acceptable in relationship {serde_side.name}"
+                    f"resource type {dest_repr.type} is not acceptable in relationship {serde_side.name}"
                 )
             id_ = dest_mapper.get_native_identity_by_serde(ctx, dest_repr)
             builder.next(id_)
