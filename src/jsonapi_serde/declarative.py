@@ -579,7 +579,7 @@ class MapperBuilder:
             if native_rel_descr.name is None:
                 continue
             name = native_rel_descr.name
-            dest_mapper = Deferred(lambda: self.query_mapper_by_native(native_rel_descr.destination))  # type: ignore
+            dest_mapper = Deferred(lambda native_rel_descr: self.query_mapper_by_native(native_rel_descr.destination), native_rel_descr)  # type: ignore
             if isinstance(native_rel_descr, NativeToOneRelationshipDescriptor):
                 resource_rel_descr = ResourceToOneRelationshipDescriptor(
                     dest_mapper.resource_descr,
@@ -619,7 +619,7 @@ class MapperBuilder:
             rel_mapping: RelationshipMapping
 
             native_rel_descr = native_rel_attr_descrs[native_side]
-            dest_mapper = Deferred(lambda: self.query_mapper_by_native(native_rel_descr.destination))  # type: ignore
+            dest_mapper = Deferred(lambda native_rel_descr: self.query_mapper_by_native(native_rel_descr.destination), native_rel_descr)  # type: ignore
             if isinstance(native_rel_descr, NativeToOneRelationshipDescriptor):
                 resource_rel_descr = ResourceToOneRelationshipDescriptor(
                     dest_mapper.resource_descr,
