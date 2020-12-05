@@ -4,7 +4,6 @@ import typing
 import pytest
 
 from ..mapper import Direction
-from ..models import ResourceAttributeDescriptor
 from .testing import (
     PlainInfoExtractor,
     PlainNativeAttributeDescriptor,
@@ -127,7 +126,12 @@ class TestDeclarative:
         assert attr_mappings[2].direction is Direction.TO_NATIVE_ONLY
 
     def test_build_mapping_serde_side_decl(self, foo_native_descr):
-        from ..declarative import InvalidDeclarationError, build_mapping, handle_meta
+        from ..declarative import (
+            Attr,
+            InvalidDeclarationError,
+            build_mapping,
+            handle_meta,
+        )
         from ..defaults import (
             DefaultBasicTypeConverterImpl,
             DefaultConverterFactoryImpl,
@@ -136,7 +140,7 @@ class TestDeclarative:
         class Meta:
             serde_side = {
                 "attributes": {
-                    "c": ResourceAttributeDescriptor(
+                    "c": Attr(
                         type=int,
                         read_only=True,
                     ),
@@ -153,7 +157,7 @@ class TestDeclarative:
             )
 
     def test_build_mapping_serde_side_decl_ok(self, foo_native_descr):
-        from ..declarative import build_mapping, handle_meta
+        from ..declarative import Attr, build_mapping, handle_meta
         from ..defaults import (
             DefaultBasicTypeConverterImpl,
             DefaultConverterFactoryImpl,
@@ -162,15 +166,15 @@ class TestDeclarative:
         class Meta:
             serde_side = {
                 "attributes": {
-                    "a": ResourceAttributeDescriptor(
+                    "a": Attr(
                         type=str,
                         read_only=True,
                     ),
-                    "b": ResourceAttributeDescriptor(
+                    "b": Attr(
                         type=int,
                         read_only=True,
                     ),
-                    "c": ResourceAttributeDescriptor(
+                    "c": Attr(
                         type=int,
                         read_only=True,
                     ),

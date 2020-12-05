@@ -10,16 +10,12 @@ from .utils import assert_not_none
 
 class ResourceMemberDescriptor:
     parent: typing.Optional["ResourceDescriptor"] = None
-    name: typing.Optional[str]
+    name: str
 
     T = typing.TypeVar("T", bound="ResourceMemberDescriptor")
 
     def bind(self: T, parent: "ResourceDescriptor") -> T:
         self.parent = parent
-        return self
-
-    def set_name(self: T, name: str) -> T:
-        self.name = name
         return self
 
 
@@ -43,7 +39,7 @@ class ResourceAttributeDescriptor(ResourceMemberDescriptor):
     def __init__(
         self,
         type: typing.Type,
-        name: typing.Optional[str] = None,
+        name: str,
         allow_null: bool = False,
         required_on_creation: bool = True,
         read_only: bool = False,

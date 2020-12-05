@@ -36,12 +36,11 @@ from .models import (
 )
 from .serde.builders import ResourceIdReprBuilder, ResourceReprBuilder
 from .serde.models import AttributeValue, ResourceRepr, Source
-from .utils import assert_not_none
 
 
 class Members:
-    members: typing.Sequence[typing.Union[str, ResourceAttributeDescriptor]]
-    member_type: typing.Union[typing.Type[str], typing.Type[ResourceAttributeDescriptor]]
+    members: typing.Sequence[typing.Union[str, "Attr"]]
+    member_type: typing.Union[typing.Type[str], typing.Type["Attr"]]
 
     def __repr__(self) -> str:
         return f"{type(self).__name__}({', '.join(repr(m) for m in self.members)})"
@@ -54,8 +53,8 @@ class Members:
         if len(member_types) != 1:
             raise TypeError("members are not homogenious")
         member_type = member_types.pop()
-        if member_type not in (str, ResourceAttributeDescriptor):
-            raise TypeError("every member must be either a str or ResourceAttributeDescriptor")
+        if member_type not in (str, Attr):
+            raise TypeError("every member must be either a str or Attr")
         self.members = members
         self.member_type = member_type
 
@@ -68,7 +67,32 @@ class Tuple(Members):
     pass
 
 
-AttributeMappingSerdeSide = typing.Union[str, ResourceAttributeDescriptor, Dict, Tuple]
+class UnspecifiedType:
+    _singleton: typing.ClassVar[typing.Optional["UnspecifiedType"]] = None
+
+    def __bool__(self):
+        return False
+
+    def __new__(cls) -> "UnspecifiedType":
+        if cls._singleton is None:
+            cls._singleton = object.__new__(cls)
+        return cls._singleton
+
+
+UNSPECIFIED = UnspecifiedType()
+
+
+@dataclasses.dataclass
+class Attr:
+    type: typing.Union[UnspecifiedType, typing.Type[AttributeValue]] = UNSPECIFIED
+    name: typing.Union[UnspecifiedType, str] = UNSPECIFIED
+    allow_null: typing.Union[UnspecifiedType, bool] = UNSPECIFIED
+    required_on_creation: typing.Union[UnspecifiedType, bool] = UNSPECIFIED
+    read_only: typing.Union[UnspecifiedType, bool] = UNSPECIFIED
+    write_only: typing.Union[UnspecifiedType, bool] = UNSPECIFIED
+
+
+AttributeMappingSerdeSide = typing.Union[str, Attr, Dict, Tuple]
 AttributeMappingNativeSide = typing.Union[str, Dict, Tuple]
 
 
@@ -97,10 +121,8 @@ RelationshipMappingType = typing.Sequence[typing.Tuple[str, str]]
 
 @dataclasses.dataclass
 class SerdeSideMeta:
-    attributes: typing.Sequence[ResourceAttributeDescriptor] = ()
-    attribute_overrides: typing.Mapping[str, ResourceAttributeDescriptor] = dataclasses.field(
-        default_factory=dict
-    )
+    attributes: typing.Union[typing.Sequence[Attr], typing.Mapping[str, Attr]] = ()
+    attribute_overrides: typing.Mapping[str, Attr] = dataclasses.field(default_factory=dict)
     resource_filters: typing.Sequence[
         typing.Callable[[ToNativeContext, Mapper, ResourceRepr], ResourceRepr]
     ] = ()
@@ -143,16 +165,18 @@ def handle_meta(meta: typing.Type) -> Meta:
     attrs = {k: v for k, v in vars(meta).items() if not k.startswith("__")}
     serde_side = attrs.get("serde_side", {})
     if "attributes" in serde_side:
-        attributes: typing.Sequence[ResourceAttributeDescriptor]
+        attributes: typing.Sequence[Attr]
         _attributes = typing.cast(
             typing.Union[
-                typing.Sequence[ResourceAttributeDescriptor],
-                typing.Mapping[str, ResourceAttributeDescriptor],
+                typing.Sequence[Attr],
+                typing.Mapping[str, Attr],
             ],
             serde_side["attributes"],
         )
         if isinstance(_attributes, collections.abc.Mapping):
-            attributes = [attr.set_name(name) for name, attr in _attributes.items()]
+            attributes = [
+                dataclasses.replace(attr, name=name) for name, attr in _attributes.items()
+            ]
         else:
             assert isinstance(_attributes, collections.abc.Sequence)
             attributes = _attributes
@@ -253,6 +277,47 @@ class ConverterFactory(metaclass=abc.ABCMeta):
         ...  # pragma: nocover
 
 
+T = typing.TypeVar("T")
+
+
+def maybe_unspecified(maybe: typing.Union[UnspecifiedType, T], default: T) -> T:
+    return typing.cast(T, maybe) if maybe is not UNSPECIFIED else default
+
+
+def assert_not_unspecified(value: typing.Union[UnspecifiedType, T]) -> T:
+    assert value is not UNSPECIFIED
+    return typing.cast(T, value)
+
+
+def create_resource_attribute_descriptor_with_template(
+    tpl: typing.Optional[Attr],
+    type: typing.Type,
+    name: str,
+    allow_null: bool,
+    required_on_creation: bool,
+    read_only: bool,
+    write_only: bool,
+):
+    if tpl is None:
+        return ResourceAttributeDescriptor(
+            type=type,
+            name=name,
+            allow_null=allow_null,
+            required_on_creation=required_on_creation,
+            read_only=read_only,
+            write_only=write_only,
+        )
+    else:
+        return ResourceAttributeDescriptor(
+            type=maybe_unspecified(tpl.type, type),
+            name=maybe_unspecified(tpl.name, name),
+            allow_null=maybe_unspecified(tpl.allow_null, allow_null),
+            required_on_creation=maybe_unspecified(tpl.required_on_creation, required_on_creation),
+            read_only=maybe_unspecified(tpl.read_only, read_only),
+            write_only=maybe_unspecified(tpl.write_only, write_only),
+        )
+
+
 class MapperBuilder:
     info_extractor: InfoExtractor
     query_mapper_by_native: typing.Callable[[NativeDescriptor], Mapper]
@@ -261,10 +326,8 @@ class MapperBuilder:
     def build_attribute_mapping_auto(
         self,
         native_descr: NativeDescriptor,
-        predefined_resource_attrs: typing.Optional[
-            typing.Mapping[str, ResourceAttributeDescriptor]
-        ],
-        resource_attr_overrides: typing.Mapping[str, ResourceAttributeDescriptor],
+        predefined_attrs: typing.Optional[typing.Mapping[str, Attr]],
+        attr_overrides: typing.Mapping[str, Attr],
     ) -> typing.Tuple[
         typing.Sequence[ResourceAttributeDescriptor], typing.Sequence[AttributeMapping]
     ]:
@@ -275,24 +338,24 @@ class MapperBuilder:
             flag = self.info_extractor.extract_attribute_flags_for_serde(native_attr_descr)
             name = self.info_extractor.extract_attribute_name_for_serde(native_attr_descr)
 
-            resource_attr_descr: ResourceAttributeDescriptor
-            if name in resource_attr_overrides:
-                resource_attr_descr = resource_attr_overrides[name]
-            elif predefined_resource_attrs is not None:
-                if name not in predefined_resource_attrs:
+            tpl: typing.Optional[Attr] = None
+            if name in attr_overrides:
+                tpl = attr_overrides[name]
+            elif predefined_attrs is not None:
+                if name not in predefined_attrs:
                     raise InvalidDeclarationError(
                         f"descriptor for attribute {name} must exist in serde_side.attributes"
                     )
-                resource_attr_descr = predefined_resource_attrs[name]
-            else:
-                resource_attr_descr = ResourceAttributeDescriptor(
-                    type=self.info_extractor.extract_attribute_type_for_serde(native_attr_descr),
-                    name=name,
-                    allow_null=bool(flag & AttributeFlags.ALLOW_NULL),
-                    required_on_creation=bool(flag & AttributeFlags.REQUIRED_ON_CREATION),
-                    read_only=bool(flag & AttributeFlags.READ_ONLY),
-                    write_only=bool(flag & AttributeFlags.WRITE_ONLY),
-                )
+                tpl = predefined_attrs[name]
+            resource_attr_descr = create_resource_attribute_descriptor_with_template(
+                tpl,
+                type=self.info_extractor.extract_attribute_type_for_serde(native_attr_descr),
+                name=name,
+                allow_null=bool(flag & AttributeFlags.ALLOW_NULL),
+                required_on_creation=bool(flag & AttributeFlags.REQUIRED_ON_CREATION),
+                read_only=bool(flag & AttributeFlags.READ_ONLY),
+                write_only=bool(flag & AttributeFlags.WRITE_ONLY),
+            )
             resource_attrs.append(resource_attr_descr)
             attribute_mappings.append(
                 ToOneAttributeMapping(
@@ -314,10 +377,8 @@ class MapperBuilder:
     def build_attribute_mapping_from_proto(
         self,
         native_descr: NativeDescriptor,
-        predefined_resource_attrs: typing.Optional[
-            typing.Mapping[str, ResourceAttributeDescriptor]
-        ],
-        resource_attr_overrides: typing.Mapping[str, ResourceAttributeDescriptor],
+        predefined_attrs: typing.Optional[typing.Mapping[str, Attr]],
+        attr_overrides: typing.Mapping[str, Attr],
         attribute_mappings_proto: AttributeMappingType,
     ) -> typing.Tuple[
         typing.Sequence[ResourceAttributeDescriptor], typing.Sequence[AttributeMapping]
@@ -340,56 +401,42 @@ class MapperBuilder:
             serde_side, native_side = pair
 
             if isinstance(serde_side, (str, ResourceAttributeDescriptor)):
-                resource_attr_descr: typing.Optional[ResourceAttributeDescriptor] = None
+                tpl: typing.Optional[Attr] = None
                 serde_side_name: typing.Optional[str] = None
 
-                if predefined_resource_attrs is not None:
+                if predefined_attrs is not None:
                     if not isinstance(serde_side, str):
                         raise InvalidDeclarationError(
                             "resource descriptors are provided in serde_side"
                         )
-                    resource_attr_descr = predefined_resource_attrs[serde_side]
+                    tpl = predefined_attrs[serde_side]
                 else:
                     if isinstance(serde_side, str):
-                        if serde_side in resource_attr_overrides:
-                            resource_attr_descr = resource_attr_overrides[serde_side]
+                        if serde_side in attr_overrides:
+                            tpl = attr_overrides[serde_side]
                         else:
                             serde_side_name = serde_side
                     else:
-                        resource_attr_descr = serde_side
+                        tpl = serde_side
 
                 if isinstance(native_side, str):
-                    if resource_attr_descr is None:
-                        native_attr_descr = native_attr_descrs_map[native_side]
-                        flag = self.info_extractor.extract_attribute_flags_for_serde(
+                    native_attr_descr = native_attr_descrs_map[native_side]
+                    flag = self.info_extractor.extract_attribute_flags_for_serde(native_attr_descr)
+                    if serde_side_name is None:
+                        serde_side_name = self.info_extractor.extract_attribute_name_for_serde(
                             native_attr_descr
                         )
-                        if serde_side_name is None:
-                            serde_side_name = self.info_extractor.extract_attribute_name_for_serde(
-                                native_attr_descr
-                            )
-                        resource_attr_descr = ResourceAttributeDescriptor(
-                            type=self.info_extractor.extract_attribute_type_for_serde(
-                                native_attr_descr
-                            ),
-                            name=serde_side_name,
-                            allow_null=bool(flag & AttributeFlags.ALLOW_NULL),
-                            required_on_creation=bool(flag & AttributeFlags.REQUIRED_ON_CREATION),
-                            read_only=direction is Direction.TO_SERDE_ONLY,
-                            write_only=direction is Direction.TO_NATIVE_ONLY,
-                        )
-                    else:
-                        if resource_attr_descr.name is None:
-                            resource_attr_descr.name = (
-                                self.info_extractor.extract_attribute_name_for_serde(
-                                    native_attr_descr
-                                )
-                            )
-                        resource_attr_descr.read_only = direction is Direction.TO_SERDE_ONLY  # TODO
-                        resource_attr_descr.write_only = (
-                            direction is Direction.TO_NATIVE_ONLY
-                        )  # TODO
-
+                    resource_attr_descr = create_resource_attribute_descriptor_with_template(
+                        tpl,
+                        type=self.info_extractor.extract_attribute_type_for_serde(
+                            native_attr_descr
+                        ),
+                        name=serde_side_name,
+                        allow_null=bool(flag & AttributeFlags.ALLOW_NULL),
+                        required_on_creation=bool(flag & AttributeFlags.REQUIRED_ON_CREATION),
+                        read_only=direction is Direction.TO_SERDE_ONLY,
+                        write_only=direction is Direction.TO_NATIVE_ONLY,
+                    )
                     resource_attrs.append(resource_attr_descr)
                     attribute_mappings.append(
                         ToOneAttributeMapping(
@@ -413,7 +460,9 @@ class MapperBuilder:
                             self.info_extractor.extract_attribute_flags_for_serde(native_attr_descr)
                             for native_attr_descr in native_attr_descrs
                         ]
-                        resource_attr_descr = ResourceAttributeDescriptor(
+                        assert serde_side_name is not None
+                        resource_attr_descr = create_resource_attribute_descriptor_with_template(
+                            tpl,
                             type=tuple,
                             name=serde_side_name,
                             allow_null=all(bool(f & AttributeFlags.ALLOW_NULL) for f in flags),
@@ -452,50 +501,47 @@ class MapperBuilder:
             elif isinstance(serde_side, (Tuple, Dict)):
                 if isinstance(native_side, str):
                     native_attr_descr = native_attr_descrs_map[native_side]
-                    resource_attr_descrs: typing.Sequence[ResourceAttributeDescriptor]
+                    tpls: typing.Sequence[typing.Optional[Attr]]
+
                     if serde_side.member_type is str:
                         flag = self.info_extractor.extract_attribute_flags_for_serde(
                             native_attr_descr
                         )
                         allow_null = bool(flag & AttributeFlags.ALLOW_NULL)
                         required_on_creation = bool(flag & AttributeFlags.REQUIRED_ON_CREATION)
-                        resource_attr_descrs = []
+
+                        tpls = []
                         for n in serde_side.members:
+                            tpl = None
                             n = typing.cast(str, n)
-                            if predefined_resource_attrs:
-                                resource_attr_descr = predefined_resource_attrs[n]
+                            if predefined_attrs:
+                                tpl = predefined_attrs[n]
                             else:
-                                if n in resource_attr_overrides:
-                                    resource_attr_descr = resource_attr_overrides[n]
+                                if n in attr_overrides:
+                                    tpl = attr_overrides[n]
                                 else:
-                                    resource_attr_descr = ResourceAttributeDescriptor(
-                                        type=str,
-                                        name=n,
-                                        allow_null=allow_null,
-                                        required_on_creation=required_on_creation,
-                                        read_only=direction is Direction.TO_SERDE_ONLY,
-                                        write_only=direction is Direction.TO_NATIVE_ONLY,
-                                    )
-                            resource_attr_descrs.append(resource_attr_descr)
+                                    tpl = Attr(name=n)
+                            tpls.append(tpl)
                     else:
                         if not all(
-                            typing.cast(ResourceAttributeDescriptor, i).name is not None
-                            for i in serde_side.members
+                            typing.cast(Attr, i).name is not None for i in serde_side.members
                         ):
                             raise InvalidDeclarationError(
-                                "serde side of a mapping contains an unnamed ResourceAttributeDescriptor"
+                                "serde side of a mapping contains an unnamed Attr"
                             )
-                        for resource_attr_descr in resource_attr_descrs:
-                            resource_attr_descr.read_only = (
-                                direction is Direction.TO_SERDE_ONLY
-                            )  # TODO
-                            resource_attr_descr.write_only = (
-                                direction is Direction.TO_NATIVE_ONLY
-                            )  # TODO
-                        resource_attr_descrs = typing.cast(
-                            typing.Sequence[ResourceAttributeDescriptor], serde_side.members
+                        tpls = typing.cast(typing.Sequence[Attr], serde_side.members)
+                    resource_attr_descrs: typing.Sequence[ResourceAttributeDescriptor] = [
+                        create_resource_attribute_descriptor_with_template(
+                            tpl,
+                            name="",  # dummy
+                            type=str,
+                            allow_null=allow_null,
+                            required_on_creation=required_on_creation,
+                            read_only=direction is Direction.TO_SERDE_ONLY,
+                            write_only=direction is Direction.TO_NATIVE_ONLY,
                         )
-
+                        for tpl in tpls
+                    ]
                     resource_attrs.extend(resource_attr_descrs)
                     attribute_mappings.append(
                         ManyToOneAttributeMapping(
@@ -604,27 +650,29 @@ class MapperBuilder:
         relationship_mappings: typing.Sequence[RelationshipMapping]
 
         attribute_mappings_proto = meta.attribute_mappings
-        predefined_resource_attrs: typing.Optional[
-            typing.Mapping[str, ResourceAttributeDescriptor]
-        ] = None
+        predefined_attrs: typing.Optional[typing.Mapping[str, Attr]] = None
 
         if meta.serde_side.attributes:
-            predefined_resource_attrs = {}
-            for attr_descr in meta.serde_side.attributes:
-                predefined_resource_attrs[assert_not_none(attr_descr.name)] = attr_descr
-        resource_attr_overrides = meta.serde_side.attribute_overrides
+            attrs = meta.serde_side.attributes
+            if isinstance(attrs, collections.abc.Mapping):
+                predefined_attrs = attrs
+            elif isinstance(attrs, collections.abc.Sequence):
+                predefined_attrs = {assert_not_unspecified(attr.name): attr for attr in attrs}
+            else:
+                raise AssertionError("should never get here")
+        attr_overrides = meta.serde_side.attribute_overrides
 
         if attribute_mappings_proto is None:
             resource_attrs, attribute_mappings = self.build_attribute_mapping_auto(
                 native_descr,
-                predefined_resource_attrs,
-                resource_attr_overrides,
+                predefined_attrs,
+                attr_overrides,
             )
         else:
             resource_attrs, attribute_mappings = self.build_attribute_mapping_from_proto(
                 native_descr,
-                predefined_resource_attrs,
-                resource_attr_overrides,
+                predefined_attrs,
+                attr_overrides,
                 attribute_mappings_proto,
             )
 
