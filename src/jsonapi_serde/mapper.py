@@ -1,5 +1,6 @@
 import abc
 import collections.abc
+import dataclasses
 import enum
 import typing
 
@@ -124,25 +125,48 @@ class Direction(enum.IntEnum):
     BIDI = 3
 
 
-class SiteContext(enum.Enum):
+class Operation(enum.Enum):
     CREATE = 1
     UPDATE = 2
+    UPDATE_REL = 3
+    QUERY_BUILDING = 4
+    RETRIEVE = 5
 
 
-ResourceFilter = typing.Callable[[ToNativeContext, "Mapper", ResourceRepr], ResourceRepr]
+GenericRepr = typing.Union[
+    None,
+    ResourceRepr,
+    typing.Sequence[ResourceRepr],
+    ResourceIdRepr,
+    typing.Sequence[ResourceIdRepr],
+]
+
+
+@dataclasses.dataclass
+class SiteContext:
+    op: Operation
+    mapper: "Mapper"
+    to_native_ctx: typing.Optional[ToNativeContext] = None
+    to_serde_ctx: typing.Optional[ToSerdeContext] = None
+    mctx: typing.Optional[MutationContext] = None
+    sbctx: typing.Optional["SerdeBuilderContext"] = None
+    serde: GenericRepr = None
+    target: typing.Optional[typing.Any] = None
+    rm: typing.Optional["RelationshipMapping"] = None
+
+
+ResourceFilter = typing.Callable[[SiteContext, GenericRepr], GenericRepr]
 
 
 NativeBuilderFilter = typing.Callable[
-    [ToNativeContext, "Mapper", MutationContext, SiteContext, ResourceRepr, NativeBuilder],
+    [SiteContext, GenericRepr, NativeBuilder],
     NativeBuilder,
 ]
 
 
 SerdeBuilderFilter = typing.Callable[
     [
-        ToSerdeContext,
-        "Mapper",
-        "SerdeBuilderContext",
+        SiteContext,
         typing.Union[ResourceReprBuilder, ResourceIdReprBuilder],
     ],
     typing.Union[ResourceReprBuilder, ResourceIdReprBuilder],
@@ -413,9 +437,7 @@ class SerdeBuilderContext(metaclass=abc.ABCMeta):
 Tm = typing.TypeVar("Tm")
 
 
-NativeFilter = typing.Callable[
-    [ToNativeContext, "Mapper", MutationContext, SiteContext, ResourceRepr, Tm], Tm
-]
+NativeFilter = typing.Callable[[SiteContext, GenericRepr, Tm], Tm]
 
 
 class Mapper(typing.Generic[Tm]):
@@ -513,15 +535,19 @@ class Mapper(typing.Generic[Tm]):
     def create_from_serde(
         self, ctx: ToNativeContext, mctx: MutationContext, serde: ResourceRepr
     ) -> Tm:
+        site_ctx = SiteContext(
+            Operation.CREATE, mapper=self, to_native_ctx=ctx, mctx=mctx, serde=serde
+        )
+
         for rf in self.resource_filters:
-            serde = rf(ctx, self, serde)
+            serde = typing.cast(ResourceRepr, rf(site_ctx, serde))
 
         builder = self.native_descr.new_builder()
         for am in self.attribute_mappings:
             if am.direction is Direction.TO_SERDE_ONLY:
                 continue
             try:
-                am.to_native(ctx, SiteContext.CREATE, serde, builder)
+                am.to_native(ctx, site_ctx, serde, builder)
             except AttributeNotFoundError:
                 if not any(
                     resource_attr_descr.required_on_creation
@@ -557,12 +583,12 @@ class Mapper(typing.Generic[Tm]):
                     raise AssertionError("should never get here!")
 
         for nbf in self.native_builder_filters:
-            builder = nbf(ctx, self, mctx, SiteContext.CREATE, serde, builder)
+            builder = nbf(site_ctx, serde, builder)
 
         native = builder(mctx)
 
         for nf in self.native_filters:
-            native = nf(ctx, self, mctx, SiteContext.CREATE, serde, native)
+            native = nf(site_ctx, serde, native)
         return native
 
     def update_with_serde(
@@ -573,8 +599,12 @@ class Mapper(typing.Generic[Tm]):
         serde: ResourceRepr,
         skip_missing: bool = False,
     ) -> Tm:
+        site_ctx = SiteContext(
+            Operation.UPDATE, mapper=self, to_native_ctx=ctx, mctx=mctx, serde=serde, target=target
+        )
+
         for rf in self.resource_filters:
-            serde = rf(ctx, self, serde)
+            serde = typing.cast(ResourceRepr, rf(site_ctx, serde))
 
         builder = self.native_descr.new_updater(target)
         for am in self.attribute_mappings:
@@ -591,7 +621,7 @@ class Mapper(typing.Generic[Tm]):
                             else serde._source_ / "attributes" / resource_attr_descr.name,
                         )
                 try:
-                    am.to_native(ctx, SiteContext.UPDATE, serde, builder)
+                    am.to_native(ctx, site_ctx, serde, builder)
                 except AttributeNotFoundError:
                     if skip_missing:
                         continue
@@ -623,12 +653,12 @@ class Mapper(typing.Generic[Tm]):
                     raise AssertionError("should never get here!")
 
         for nbf in self.native_builder_filters:
-            builder = nbf(ctx, self, mctx, SiteContext.UPDATE, serde, builder)
+            builder = nbf(site_ctx, serde, builder)
 
         native = builder(mctx)
 
         for nf in self.native_filters:
-            native = nf(ctx, self, mctx, SiteContext.UPDATE, serde, native)
+            native = nf(site_ctx, serde, native)
         return native
 
     def update_to_one_rel_with_serde(
@@ -640,6 +670,20 @@ class Mapper(typing.Generic[Tm]):
         serde: typing.Optional[ResourceIdRepr],
     ) -> Tm:
         assert isinstance(rm.native_side, NativeToOneRelationshipDescriptor)
+
+        site_ctx = SiteContext(
+            Operation.UPDATE_REL,
+            mapper=self,
+            to_native_ctx=ctx,
+            mctx=mctx,
+            serde=serde,
+            target=target,
+            rm=rm,
+        )
+
+        for rf in self.resource_filters:
+            serde = typing.cast(typing.Optional[ResourceIdRepr], rf(site_ctx, serde))
+
         builder = self.native_descr.new_updater(target)
         self._build_native_to_one(
             ctx,
@@ -648,7 +692,15 @@ class Mapper(typing.Generic[Tm]):
             typing.cast(NativeToOneRelationshipDescriptor, rm.native_side),
             typing.cast(ResourceToOneRelationshipDescriptor, rm.serde_side),
         )
-        return builder(mctx)
+
+        for nbf in self.native_builder_filters:
+            builder = nbf(site_ctx, serde, builder)
+
+        native = builder(mctx)
+
+        for nf in self.native_filters:
+            native = nf(site_ctx, serde, native)
+        return native
 
     def update_to_many_rel_with_serde(
         self,
@@ -659,6 +711,20 @@ class Mapper(typing.Generic[Tm]):
         serde: typing.Sequence[ResourceIdRepr],
     ) -> Tm:
         assert isinstance(rm.native_side, NativeToManyRelationshipDescriptor)
+
+        site_ctx = SiteContext(
+            Operation.UPDATE_REL,
+            mapper=self,
+            to_native_ctx=ctx,
+            mctx=mctx,
+            serde=serde,
+            target=target,
+            rm=rm,
+        )
+
+        for rf in self.resource_filters:
+            serde = typing.cast(typing.Sequence[ResourceIdRepr], rf(site_ctx, serde))
+
         builder = self.native_descr.new_updater(target)
         self._build_native_to_many(
             ctx,
@@ -667,7 +733,15 @@ class Mapper(typing.Generic[Tm]):
             typing.cast(NativeToManyRelationshipDescriptor, rm.native_side),
             typing.cast(ResourceToManyRelationshipDescriptor, rm.serde_side),
         )
-        return builder(mctx)
+
+        for nbf in self.native_builder_filters:
+            builder = nbf(site_ctx, serde, builder)
+
+        native = builder(mctx)
+
+        for nf in self.native_filters:
+            native = nf(site_ctx, serde, native)
+        return native
 
     def get_native_identity_by_serde(
         self, ctx: ToNativeContext, serde: typing.Union[ResourceIdRepr, ResourceRepr]
@@ -790,6 +864,10 @@ class Mapper(typing.Generic[Tm]):
         builder: typing.Union[ResourceReprBuilder, ResourceIdReprBuilder],
         native: Tm,
     ) -> None:
+        site_ctx = SiteContext(
+            Operation.RETRIEVE, mapper=self, to_serde_ctx=ctx, sbctx=rctx, target=native
+        )
+
         builder.type = ctx.query_type_name_by_descriptor(self.resource_descr)
         builder.id = self.get_serde_identity_by_native(ctx, native)
         if isinstance(builder, ResourceReprBuilder):
@@ -800,8 +878,9 @@ class Mapper(typing.Generic[Tm]):
             for rm in self.relationship_mappings:
                 if ctx.select_relationship(rm):
                     self._build_serde_relationship(ctx, rctx, builder, native, rm)
+
         for sbf in self.serde_builder_filters:
-            sbf(ctx, self, rctx, builder)
+            sbf(site_ctx, builder)
 
     def bind(self, ctx: "MapperContext") -> None:
         self.ctx = ctx
@@ -813,9 +892,7 @@ class Mapper(typing.Generic[Tm]):
         attribute_mappings: typing.Sequence[AttributeMapping],
         relationship_mappings: typing.Sequence[RelationshipMapping],
         ctx: typing.Optional["MapperContext"] = None,
-        resource_filters: typing.Sequence[
-            typing.Callable[[ToNativeContext, "Mapper", ResourceRepr], ResourceRepr]
-        ] = (),
+        resource_filters: typing.Sequence[ResourceFilter] = (),
         native_builder_filters: typing.Sequence[NativeBuilderFilter] = (),
         native_filters: typing.Sequence[NativeFilter[Tm]] = (),
         serde_builder_filters: typing.Sequence[SerdeBuilderFilter] = (),
