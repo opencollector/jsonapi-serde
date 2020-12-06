@@ -5,14 +5,18 @@ from .serde.models import AttributeValue, Source
 from .serde.utils import english_enumerate
 
 
-class InvalidDeclarationError(Exception):
+class JSONAPISerdeException(Exception, metaclass=abc.ABCMeta):
+    pass
+
+
+class InvalidDeclarationError(JSONAPISerdeException):
     message: str
 
     def __init__(self, message):
         self.message = message
 
 
-class JSONAPIMapperError(Exception, metaclass=abc.ABCMeta):
+class JSONAPIMapperError(JSONAPISerdeException, metaclass=abc.ABCMeta):
     @property
     @abc.abstractmethod
     def sources(self) -> typing.Sequence[Source]:
@@ -138,33 +142,6 @@ class InvalidStructureError(JSONAPIMapperError):
         self.message = message
 
 
-class InvalidIdentifierError(JSONAPIMapperError):
-    message: str
-    _source: typing.Optional[Source]
-
-    @property
-    def sources(self) -> typing.Sequence[Source]:
-        if self._source is None:
-            return []
-        else:
-            return [self._source]
-
-    def __init__(self, message: str, source: typing.Optional[Source] = None):
-        self.message = message
-        self._source = source
-
-
-class InvalidNativeObjectStateError(JSONAPIMapperError):
-    message: str
-
-    @property
-    def sources(self) -> typing.Sequence[Source]:
-        return []
-
-    def __init__(self, message: str):
-        self.message = message
-
-
 class GenericConstraintError(JSONAPIMapperError):
     message: str
 
@@ -174,23 +151,6 @@ class GenericConstraintError(JSONAPIMapperError):
 
     def __init__(self, message: str):
         self.message = message
-
-
-class NativeResourceNotFoundError(JSONAPIMapperError):
-    descr: "interfaces.NativeDescriptor"
-    id: typing.Any
-
-    @property
-    def sources(self) -> typing.Sequence[Source]:
-        return []
-
-    @property
-    def message(self):
-        return f"no native resource {self.descr} found for {self.id}"
-
-    def __init__(self, descr: "interfaces.NativeDescriptor", id: typing.Any):
-        self.descr = descr
-        self.id = id
 
 
 class ConversionError(JSONAPIMapperError):
@@ -230,6 +190,63 @@ class ConversionError(JSONAPIMapperError):
         self.resource_attribute_descrs = resource_attribute_descrs
         self.native_attribute_descrs = native_attribute_descrs
         self._sources = sources
+
+
+class NativeError(JSONAPISerdeException):
+    pass
+
+
+class NativeResourceNotFoundError(NativeError):
+    descr: "interfaces.NativeDescriptor"
+    id: typing.Any
+
+    @property
+    def message(self):
+        return f"no native resource {self.descr} found for {self.id}"
+
+    def __init__(self, descr: "interfaces.NativeDescriptor", id: typing.Any):
+        self.descr = descr
+        self.id = id
+
+
+class NativeAttributeNotFoundError(NativeError):
+    descr: "interfaces.NativeDescriptor"
+    name: str
+
+    @property
+    def message(self):
+        return f"no such native attribute found in {self.descr}: {self.name}"
+
+    def __init__(self, descr: "interfaces.NativeDescriptor", name: str):
+        self.descr = descr
+        self.name = name
+
+
+class NativeRelationshipNotFoundError(NativeError):
+    descr: "interfaces.NativeDescriptor"
+    name: str
+
+    @property
+    def message(self):
+        return f"no such native relationship found in {self.descr}: {self.name}"
+
+    def __init__(self, descr: "interfaces.NativeDescriptor", name: str):
+        self.descr = descr
+        self.name = name
+
+
+class InvalidNativeObjectStateError(NativeError):
+    message: str
+
+    def __init__(self, message: str):
+        self.message = message
+
+
+class InvalidIdentifierError(NativeError):
+    message: str
+
+    def __init__(self, message: str):
+        self.message = message
 
 
 from . import mapper  # noqa: E402

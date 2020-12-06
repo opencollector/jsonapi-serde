@@ -2,6 +2,7 @@ import dataclasses
 import typing
 
 from ..declarative import AttributeFlags, InfoExtractor
+from ..exceptions import NativeAttributeNotFoundError, NativeRelationshipNotFoundError
 from ..interfaces import (
     Endpoint,
     MutationContext,
@@ -238,9 +239,21 @@ class PlainNativeDescriptor(NativeDescriptor):
     def attributes(self) -> typing.Sequence[NativeAttributeDescriptor]:
         return self._attributes
 
+    def get_attribute_by_name(self, name: str) -> NativeAttributeDescriptor:
+        for descr in self._attributes:
+            if descr.name == name:
+                return descr
+        raise NativeAttributeNotFoundError(self, name)
+
     @property
     def relationships(self) -> typing.Sequence[NativeRelationshipDescriptor]:
         return self._relationships
+
+    def get_relationship_by_name(self, name: str) -> NativeRelationshipDescriptor:
+        for descr in self._relationships:
+            if descr.name == name:
+                return descr
+        raise NativeRelationshipNotFoundError(self, name)
 
     def get_identity(self, target: typing.Any) -> str:
         return target.id

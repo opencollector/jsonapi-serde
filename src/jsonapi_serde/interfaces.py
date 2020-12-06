@@ -234,7 +234,6 @@ class NativeDescriptor(metaclass=abc.ABCMeta):
 
         :return: A type object that represents the class.
         """
-        ...  # pragma: nocover
 
     @abc.abstractmethod
     def new_builder(self) -> NativeBuilder:
@@ -243,7 +242,6 @@ class NativeDescriptor(metaclass=abc.ABCMeta):
 
         :return: A new ``NativeBuilder`` instance.
         """
-        ...  # pragma: nocover
 
     @abc.abstractmethod
     def new_updater(self, target: typing.Any) -> NativeBuilder:
@@ -252,7 +250,6 @@ class NativeDescriptor(metaclass=abc.ABCMeta):
 
         :return: A new ``NativeBuilder`` instance.
         """
-        ...  # pragma: nocover
 
     @property
     @abc.abstractmethod
@@ -260,7 +257,15 @@ class NativeDescriptor(metaclass=abc.ABCMeta):
         """
         Returns descriptors for the attributes the native object possesses
 
-        :return: the sequence of ``NativeAttributeDescriptor``.
+        :return: the sequence of ``NativeAttributeDescriptor`.
+        """
+
+    @abc.abstractmethod
+    def get_attribute_by_name(self, name: str) -> NativeAttributeDescriptor:
+        """
+        Returns an attribute descriptor whose name is ``name``
+
+        :return: A ``NativeAttributeDescriptor` instance.
         """
 
     @property
@@ -273,13 +278,20 @@ class NativeDescriptor(metaclass=abc.ABCMeta):
         """
 
     @abc.abstractmethod
+    def get_relationship_by_name(self, name: str) -> NativeRelationshipDescriptor:
+        """
+        Returns a relationship descriptor whose name is ``name``
+
+        :return: A ``NativeRelationshipDescriptor` instance.
+        """
+
+    @abc.abstractmethod
     def get_identity(self, target: typing.Any) -> typing.Any:
         """
         Retrieves the identity for the target native object.
 
         :returns: An implementation-dependent identifier for the native object.
         """
-        ...  # pragma: nocover
 
 
 class Endpoint(metaclass=abc.ABCMeta):

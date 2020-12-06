@@ -6,7 +6,11 @@ from collections import OrderedDict
 import sqlalchemy as sa  # type: ignore
 from sqlalchemy import orm  # type: ignore
 
-from ...exceptions import InvalidIdentifierError
+from ...exceptions import (
+    InvalidIdentifierError,
+    NativeAttributeNotFoundError,
+    NativeRelationshipNotFoundError,
+)
 from ...interfaces import (
     MutationContext,
     NativeAttributeDescriptor,
@@ -314,11 +318,27 @@ class SQLADescriptor(NativeDescriptor):
         assert self.attrs_ is not None
         return list(self.attrs_.values())
 
+    def get_attribute_by_name(self, name: str) -> SQLAAttributeDescriptor:
+        self._populate_attrs_and_rels()
+        assert self.attrs_ is not None
+        try:
+            return self.attrs_[name]
+        except KeyError:
+            raise NativeAttributeNotFoundError(self, name)
+
     @property
     def relationships(self) -> typing.Sequence[SQLARelationshipDescriptor]:
         self._populate_attrs_and_rels()
         assert self.rels_ is not None
         return list(self.rels_.values())
+
+    def get_relationship_by_name(self, name: str) -> SQLARelationshipDescriptor:
+        self._populate_attrs_and_rels()
+        assert self.rels_ is not None
+        try:
+            return self.rels_[name]
+        except KeyError:
+            raise NativeRelationshipNotFoundError(self, name)
 
     def get_identity(self, target: typing.Any) -> typing.Any:
         return self.mapper.primary_key_from_instance(target)
