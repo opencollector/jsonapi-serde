@@ -90,6 +90,7 @@ class Attr:
     required_on_creation: typing.Union[UnspecifiedType, bool] = UNSPECIFIED
     read_only: typing.Union[UnspecifiedType, bool] = UNSPECIFIED
     write_only: typing.Union[UnspecifiedType, bool] = UNSPECIFIED
+    immutable: typing.Union[UnspecifiedType, bool] = UNSPECIFIED
 
 
 AttributeMappingSerdeSide = typing.Union[str, Attr, Dict, Tuple]
@@ -168,6 +169,7 @@ class AttributeFlags(enum.IntFlag):
     REQUIRED_ON_CREATION = 2
     READ_ONLY = 4
     WRITE_ONLY = 8
+    IMMUTABLE = 16
 
 
 class InfoExtractor(metaclass=abc.ABCMeta):
@@ -270,6 +272,7 @@ def create_resource_attribute_descriptor_with_template(
     required_on_creation: bool,
     read_only: bool,
     write_only: bool,
+    immutable: bool,
 ):
     if tpl is None:
         return ResourceAttributeDescriptor(
@@ -279,6 +282,7 @@ def create_resource_attribute_descriptor_with_template(
             required_on_creation=required_on_creation,
             read_only=read_only,
             write_only=write_only,
+            immutable=immutable,
         )
     else:
         return ResourceAttributeDescriptor(
@@ -288,6 +292,7 @@ def create_resource_attribute_descriptor_with_template(
             required_on_creation=maybe_unspecified(tpl.required_on_creation, required_on_creation),
             read_only=maybe_unspecified(tpl.read_only, read_only),
             write_only=maybe_unspecified(tpl.write_only, write_only),
+            immutable=immutable,
         )
 
 
@@ -328,6 +333,7 @@ class MapperBuilder:
                 required_on_creation=bool(flag & AttributeFlags.REQUIRED_ON_CREATION),
                 read_only=bool(flag & AttributeFlags.READ_ONLY),
                 write_only=bool(flag & AttributeFlags.WRITE_ONLY),
+                immutable=bool(flag & AttributeFlags.IMMUTABLE),
             )
             resource_attrs.append(resource_attr_descr)
             attribute_mappings.append(
@@ -409,6 +415,7 @@ class MapperBuilder:
                         required_on_creation=bool(flag & AttributeFlags.REQUIRED_ON_CREATION),
                         read_only=direction is Direction.TO_SERDE_ONLY,
                         write_only=direction is Direction.TO_NATIVE_ONLY,
+                        immutable=bool(flag & AttributeFlags.IMMUTABLE),
                     )
                     resource_attrs.append(resource_attr_descr)
                     attribute_mappings.append(
@@ -444,6 +451,7 @@ class MapperBuilder:
                             ),
                             read_only=direction is Direction.TO_SERDE_ONLY,
                             write_only=direction is Direction.TO_NATIVE_ONLY,
+                            immutable=any(bool(f & AttributeFlags.IMMUTABLE) for f in flags),
                         )
                     else:
                         if resource_attr_descr.name is None:
@@ -476,12 +484,17 @@ class MapperBuilder:
                     native_attr_descr = native_attr_descrs_map[native_side]
                     tpls: typing.Sequence[typing.Optional[Attr]]
 
+                    allow_null = False
+                    required_on_creation = True
+                    immutable = False
+
                     if serde_side.member_type is str:
                         flag = self.info_extractor.extract_attribute_flags_for_serde(
                             native_attr_descr
                         )
                         allow_null = bool(flag & AttributeFlags.ALLOW_NULL)
                         required_on_creation = bool(flag & AttributeFlags.REQUIRED_ON_CREATION)
+                        immutable = bool(flag & AttributeFlags.IMMUTABLE)
 
                         tpls = []
                         for n in serde_side.members:
@@ -512,6 +525,7 @@ class MapperBuilder:
                             required_on_creation=required_on_creation,
                             read_only=direction is Direction.TO_SERDE_ONLY,
                             write_only=direction is Direction.TO_NATIVE_ONLY,
+                            immutable=immutable,
                         )
                         for tpl in tpls
                     ]

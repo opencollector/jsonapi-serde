@@ -5,6 +5,7 @@ import typing
 
 from .exceptions import (
     AttributeNotFoundError,
+    ImmutableAttributeError,
     InvalidStructureError,
     RelationshipNotFoundError,
 )
@@ -160,10 +161,12 @@ class AttributeMapping(typing.Generic[Ta0], metaclass=abc.ABCMeta):
         self.mapper = mapper
         return self
 
+    @property
     @abc.abstractmethod
     def serde_side_descrs(self) -> typing.Iterable[ResourceAttributeDescriptor]:
         ...  # pragma: nocover
 
+    @property
     @abc.abstractmethod
     def native_side_descrs(self) -> typing.Iterable[NativeAttributeDescriptor]:
         ...  # pragma: nocover
@@ -173,7 +176,13 @@ class AttributeMapping(typing.Generic[Ta0], metaclass=abc.ABCMeta):
         ...  # pragma: nocover
 
     @abc.abstractmethod
-    def to_native(self, ctx: ToNativeContext, blob: ResourceRepr, builder: NativeBuilder) -> None:
+    def to_native(
+        self,
+        ctx: ToNativeContext,
+        site_ctx: SiteContext,
+        blob: ResourceRepr,
+        builder: NativeBuilder,
+    ) -> None:
         ...  # pragma: nocover
 
 
@@ -186,9 +195,11 @@ class ToOneAttributeMapping(AttributeMapping[Ta1], typing.Generic[Ta1]):
     to_serde_factory: typing.Callable[[ToSerdeContext, typing.Any], AttributeValue]
     to_native_factory: typing.Callable[[ToNativeContext, Source, AttributeValue], typing.Any]
 
+    @property
     def serde_side_descrs(self) -> typing.Iterable[ResourceAttributeDescriptor]:
         return [self.serde_side]
 
+    @property
     def native_side_descrs(self) -> typing.Iterable[NativeAttributeDescriptor]:
         return [self.native_side]
 
@@ -200,9 +211,13 @@ class ToOneAttributeMapping(AttributeMapping[Ta1], typing.Generic[Ta1]):
             self.to_serde_factory(ctx, self.native_side.fetch_value(blob)),  # type: ignore
         )
 
-    def to_native(self, ctx: ToNativeContext, blob: ResourceRepr, builder: NativeBuilder) -> None:
-        if self.direction is Direction.TO_SERDE_ONLY:
-            return
+    def to_native(
+        self,
+        ctx: ToNativeContext,
+        site_ctx: SiteContext,
+        blob: ResourceRepr,
+        builder: NativeBuilder,
+    ) -> None:
         builder[self.native_side] = self.to_native_factory(  # type: ignore
             ctx,  # type: ignore
             (
@@ -243,9 +258,11 @@ class ToManyAttributeMapping(AttributeMapping[Ta2], typing.Generic[Ta2]):
         [ToNativeContext, Source, AttributeValue], typing.Sequence[typing.Any]
     ]
 
+    @property
     def serde_side_descrs(self) -> typing.Iterable[ResourceAttributeDescriptor]:
         return [self.serde_side]
 
+    @property
     def native_side_descrs(self) -> typing.Iterable[NativeAttributeDescriptor]:
         return self.native_side
 
@@ -259,9 +276,13 @@ class ToManyAttributeMapping(AttributeMapping[Ta2], typing.Generic[Ta2]):
             ),
         )
 
-    def to_native(self, ctx: ToNativeContext, blob: ResourceRepr, builder: NativeBuilder) -> None:
-        if self.direction is Direction.TO_SERDE_ONLY:
-            return
+    def to_native(
+        self,
+        ctx: ToNativeContext,
+        site_ctx: SiteContext,
+        blob: ResourceRepr,
+        builder: NativeBuilder,
+    ) -> None:
         result = self.to_native_factory(  # type: ignore
             ctx,  # type: ignore
             (
@@ -308,9 +329,11 @@ class ManyToOneAttributeMapping(AttributeMapping[Ta3], typing.Generic[Ta3]):
         [ToNativeContext, typing.Sequence[Source], typing.Sequence[AttributeValue]], typing.Any
     ]
 
+    @property
     def serde_side_descrs(self) -> typing.Iterable[ResourceAttributeDescriptor]:
         return self.serde_side
 
+    @property
     def native_side_descrs(self) -> typing.Iterable[NativeAttributeDescriptor]:
         return [self.native_side]
 
@@ -325,9 +348,13 @@ class ManyToOneAttributeMapping(AttributeMapping[Ta3], typing.Generic[Ta3]):
         for s, v in zip(self.serde_side, result):
             builder.add_attribute(assert_not_none(s.name), v)
 
-    def to_native(self, ctx: ToNativeContext, blob: ResourceRepr, builder: NativeBuilder) -> None:
-        if self.direction is Direction.TO_SERDE_ONLY:
-            return
+    def to_native(
+        self,
+        ctx: ToNativeContext,
+        site_ctx: SiteContext,
+        blob: ResourceRepr,
+        builder: NativeBuilder,
+    ) -> None:
         builder[self.native_side] = self.to_native_factory(  # type: ignore
             ctx,  # type: ignore
             (
@@ -491,7 +518,19 @@ class Mapper(typing.Generic[Tm]):
 
         builder = self.native_descr.new_builder()
         for am in self.attribute_mappings:
-            am.to_native(ctx, serde, builder)
+            if am.direction is Direction.TO_SERDE_ONLY:
+                continue
+            try:
+                am.to_native(ctx, SiteContext.CREATE, serde, builder)
+            except AttributeNotFoundError:
+                if not any(
+                    resource_attr_descr.required_on_creation
+                    for resource_attr_descr in am.serde_side_descrs
+                ):
+                    continue
+                else:
+                    raise
+
         for rm in self.relationship_mappings:
             if ctx.select_relationship(rm):
                 try:
@@ -540,8 +579,19 @@ class Mapper(typing.Generic[Tm]):
         builder = self.native_descr.new_updater(target)
         for am in self.attribute_mappings:
             if ctx.select_attribute(am):
+                if am.direction is Direction.TO_SERDE_ONLY:
+                    continue
+                for resource_attr_descr in am.serde_side_descrs:
+                    if resource_attr_descr.immutable:
+                        raise ImmutableAttributeError(
+                            self.resource_descr,
+                            "attribute {resource_attr_descr.name} is immutable",
+                            serde._source_
+                            if not isinstance(serde._source_, JSONPointer)
+                            else serde._source_ / "attributes" / resource_attr_descr.name,
+                        )
                 try:
-                    am.to_native(ctx, serde, builder)
+                    am.to_native(ctx, SiteContext.UPDATE, serde, builder)
                 except AttributeNotFoundError:
                     if skip_missing:
                         continue

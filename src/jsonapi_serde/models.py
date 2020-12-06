@@ -25,6 +25,7 @@ class ResourceAttributeDescriptor(ResourceMemberDescriptor):
     required_on_creation: bool
     read_only: bool
     write_only: bool
+    immutable: bool
 
     def extract_value(
         self, repr_: ResourceRepr, source: typing.Optional[Source] = None
@@ -44,6 +45,7 @@ class ResourceAttributeDescriptor(ResourceMemberDescriptor):
         required_on_creation: bool = True,
         read_only: bool = False,
         write_only: bool = False,
+        immutable: bool = False,
     ):
         self.name = name
         self.type = type
@@ -51,6 +53,7 @@ class ResourceAttributeDescriptor(ResourceMemberDescriptor):
         self.required_on_creation = required_on_creation
         self.read_only = read_only
         self.write_only = write_only
+        self.immutable = immutable
 
 
 class ResourceRelationshipDescriptor(ResourceMemberDescriptor):

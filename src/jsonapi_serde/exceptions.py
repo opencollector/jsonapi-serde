@@ -1,7 +1,7 @@
 import abc
 import typing
 
-from .serde.models import Source
+from .serde.models import AttributeValue, Source
 from .serde.utils import english_enumerate
 
 
@@ -19,7 +19,7 @@ class JSONAPIMapperError(Exception, metaclass=abc.ABCMeta):
         ...
 
 
-class AttributeNotFoundError(JSONAPIMapperError):
+class JSONAPIAttributeError(JSONAPIMapperError):
     resource: "models.ResourceDescriptor"
     name: str
     _source: typing.Optional[Source]
@@ -32,8 +32,9 @@ class AttributeNotFoundError(JSONAPIMapperError):
             return [self._source]
 
     @property
-    def message(self):
-        return f'attribute ({self.name}) not supplied as specified in "{self.resource.name}"'
+    @abc.abstractmethod
+    def message(self) -> str:
+        ...  # pragma: nocover
 
     def __init__(
         self,
@@ -44,6 +45,39 @@ class AttributeNotFoundError(JSONAPIMapperError):
         self.resource = resource
         self.name = name
         self._source = source
+
+
+class InvalidAttributeValueError(JSONAPIAttributeError):
+    actual: AttributeValue
+    detail: typing.Optional[str]
+
+    @property
+    def message(self):
+        return f'attribute ({self.name}) in "{self.resource.name}" contains an invalid value{" (" + self.detail + ")" if self.detail is not None else ""}: {self.actual}'
+
+    def __init__(
+        self,
+        resource: "models.ResourceDescriptor",
+        name: str,
+        actual: AttributeValue,
+        detail: typing.Optional[str] = None,
+        source: typing.Optional[Source] = None,
+    ):
+        super().__init__(resource, name, source)
+        self.actual = actual
+        self.detail = detail
+
+
+class ImmutableAttributeError(JSONAPIAttributeError):
+    @property
+    def message(self):
+        return f'attribute ({self.name}) in "{self.resource.name}" is immutable'
+
+
+class AttributeNotFoundError(JSONAPIAttributeError):
+    @property
+    def message(self):
+        return f'attribute ({self.name}) not supplied as specified in "{self.resource.name}"'
 
 
 class RelationshipNotFoundError(JSONAPIMapperError):
