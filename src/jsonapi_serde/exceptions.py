@@ -165,6 +165,17 @@ class InvalidNativeObjectStateError(JSONAPIMapperError):
         self.message = message
 
 
+class GenericConstraintError(JSONAPIMapperError):
+    message: str
+
+    @property
+    def sources(self) -> typing.Sequence[Source]:
+        return []
+
+    def __init__(self, message: str):
+        self.message = message
+
+
 class NativeResourceNotFoundError(JSONAPIMapperError):
     descr: "interfaces.NativeDescriptor"
     id: typing.Any
