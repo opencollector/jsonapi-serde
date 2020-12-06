@@ -1147,7 +1147,9 @@ class MapperContext:
         resource_descr = self.serde_type_resolver.query_descriptor_by_type_name(serde.type)
         mapper = self._resource_descr_to_mapper_mappings[resource_descr]
         return mapper.create_from_serde(
-            self.create_to_native_context(select_attribute, select_relationship), mctx, serde
+            ctx=self.create_to_native_context(select_attribute, select_relationship),
+            mctx=mctx,
+            serde=serde,
         )
 
     Tmc = typing.TypeVar("Tmc")
@@ -1159,15 +1161,17 @@ class MapperContext:
         serde: ResourceRepr,
         select_attribute: typing.Optional[typing.Callable[[AttributeMapping], bool]] = None,
         select_relationship: typing.Optional[typing.Callable[[RelationshipMapping], bool]] = None,
+        skip_missing: bool = False,
     ) -> Tmc:
         resource_descr = self.serde_type_resolver.query_descriptor_by_type_name(serde.type)
         mapper = self._resource_descr_to_mapper_mappings[resource_descr]
         assert isinstance(target, mapper.native_descr.class_)
         return mapper.update_with_serde(
-            self.create_to_native_context(select_attribute, select_relationship),
-            mctx,
-            target,
-            serde,
+            ctx=self.create_to_native_context(select_attribute, select_relationship),
+            mctx=mctx,
+            target=target,
+            serde=serde,
+            skip_missing=skip_missing,
         )
 
     Tmcr = typing.TypeVar("Tmcr")
@@ -1182,7 +1186,7 @@ class MapperContext:
         mapper = self.query_mapper_by_native_class(type(target))
         rm = mapper.get_relationship_mapping_by_serde_name(None, serde_rel_name)
         return mapper.update_to_one_rel_with_serde(
-            self.create_to_native_context(None), mctx, target, rm, serde
+            ctx=self.create_to_native_context(None), mctx=mctx, target=target, rm=rm, serde=serde
         )
 
     Tmcrm = typing.TypeVar("Tmcrm")
@@ -1197,7 +1201,7 @@ class MapperContext:
         mapper = self.query_mapper_by_native_class(type(target))
         rm = mapper.get_relationship_mapping_by_serde_name(None, serde_rel_name)
         return mapper.update_to_many_rel_with_serde(
-            self.create_to_native_context(None), mctx, target, rm, serde
+            ctx=self.create_to_native_context(None), mctx=mctx, target=target, rm=rm, serde=serde
         )
 
     def _new_singleton_document_builder(self) -> SingletonDocumentBuilder:
