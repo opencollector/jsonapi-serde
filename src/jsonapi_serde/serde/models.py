@@ -2,6 +2,7 @@
 Classes in :py:mod:`jsonapi_serde.serde.models` are abstract representation of JSON:API document elements.
 """
 
+import collections.abc
 import dataclasses
 import datetime
 import decimal
@@ -164,6 +165,36 @@ class ResourceRepr(NodeRepr):
 
     def __getitem__(self, name):
         return self.attributes[name]
+
+    def replace_attributes(
+        self,
+        attributes: typing.Union[
+            None,
+            typing.Iterable[typing.Tuple[str, AttributeValue]],
+            typing.Mapping[str, AttributeValue],
+        ] = None,
+        **kwargs: AttributeValue,
+    ):
+        new_attributes: typing.MutableMapping[str, AttributeValue] = OrderedDict(
+            self.attributes.items()
+        )
+
+        if isinstance(attributes, collections.abc.Mapping):
+            new_attributes.update(attributes)
+        elif attributes is not None:
+            new_attributes.update(
+                typing.cast(typing.Iterable[typing.Tuple[str, AttributeValue]], attributes)
+            )
+        new_attributes.update(kwargs)
+        return type(self)(
+            type=self.type,
+            id=self.id,
+            attributes=new_attributes.items(),
+            relationships=self.relationships.items(),
+            links=self.links,
+            meta=self.meta,
+            _source_=self._source_,
+        )
 
     def __init__(
         self,
