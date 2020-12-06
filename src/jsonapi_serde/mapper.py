@@ -1162,6 +1162,7 @@ class MapperContext:
     ) -> Tmc:
         resource_descr = self.serde_type_resolver.query_descriptor_by_type_name(serde.type)
         mapper = self._resource_descr_to_mapper_mappings[resource_descr]
+        assert isinstance(target, mapper.native_descr.class_)
         return mapper.update_with_serde(
             self.create_to_native_context(select_attribute, select_relationship),
             mctx,
