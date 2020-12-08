@@ -82,12 +82,12 @@ Tn = typing.TypeVar("Tn")
 class BasicTypeConverter(metaclass=abc.ABCMeta):
     @abc.abstractmethod
     def convert_to_attribute_value(
-        self, typ: typing.Type[AttributeValue], value: typing.Any
+        self, typ: typing.Type[AttributeValue], allow_null: bool, value: typing.Any
     ) -> AttributeValue:
         ...
 
     @abc.abstractmethod
-    def convert_from_attribute_value(self, typ: typing.Type[Tn], value: AttributeValue) -> Tn:
+    def convert_from_attribute_value(self, typ: typing.Type[Tn], value: AttributeValue) -> typing.Optional[Tn]:
         ...
 
 
@@ -95,9 +95,11 @@ class DefaultBasicTypeConverterImpl(BasicTypeConverter):
     jsonic_converter: PyTypedJsonicDataConverter
 
     def convert_to_attribute_value(
-        self, typ: typing.Type[AttributeValue], value: typing.Any
+        self, typ: typing.Type[AttributeValue], allow_null: bool, value: typing.Any
     ) -> AttributeValue:
-        if isinstance(value, enum.Enum):
+        if value is None and allow_null:
+            return None
+        elif isinstance(value, enum.Enum):
             return value.value
         elif isinstance(value, (datetime.datetime, datetime.date)):
             return value
@@ -114,8 +116,10 @@ class DefaultBasicTypeConverterImpl(BasicTypeConverter):
             return typing.cast(AttributeValue, value)  # TODO
         raise TypeError(f"failed to render a native value to an attribute value ({typ})")
 
-    def convert_from_attribute_value(self, typ: typing.Type[Tn], value: AttributeValue) -> Tn:
-        if issubclass(typ, enum.Enum) and isinstance(value, str):
+    def convert_from_attribute_value(self, typ: typing.Type[Tn], value: AttributeValue) -> typing.Optional[Tn]:
+        if value is None:
+            return None
+        elif issubclass(typ, enum.Enum) and isinstance(value, str):
             for e in typ:
                 if e.value == value:
                     return typing.cast(Tn, e)
@@ -147,7 +151,9 @@ class DefaultConverterFactoryImpl(ConverterFactory):
     ) -> typing.Callable[[ToSerdeContext, typing.Any], AttributeValue]:
         def _(ctx: ToSerdeContext, value: typing.Any) -> AttributeValue:
             try:
-                return self.converter.convert_to_attribute_value(resource_attr_descr.type, value)
+                return self.converter.convert_to_attribute_value(
+                    resource_attr_descr.type, resource_attr_descr.allow_null, value
+                )
             except (ValueError, TypeError) as e:
                 raise ConversionError(
                     ctx=ctx,
@@ -173,7 +179,7 @@ class DefaultConverterFactoryImpl(ConverterFactory):
                         )
                     return {
                         resource_attr_descr.name: self.converter.convert_to_attribute_value(
-                            resource_attr_descr.type, v
+                            resource_attr_descr.type, resource_attr_descr.allow_null, v
                         )
                         for v, resource_attr_descr in zip(value, resource_attr_descrs)
                     }
@@ -185,7 +191,9 @@ class DefaultConverterFactoryImpl(ConverterFactory):
                             f"{value!r} does not contain {len(resource_attr_descrs)} items"
                         )
                     return tuple(
-                        self.converter.convert_to_attribute_value(resource_attr_descr.type, v)
+                        self.converter.convert_to_attribute_value(
+                            resource_attr_descr.type, resource_attr_descr.allow_null, v
+                        )
                         for v, resource_attr_descr in zip(value, resource_attr_descrs)
                     )
                 else:
@@ -214,7 +222,9 @@ class DefaultConverterFactoryImpl(ConverterFactory):
                             f"{value!r} does not contain {len(native_attr_descrs)} items"
                         )
                     return tuple(
-                        self.converter.convert_to_attribute_value(native_attr_descr.type, v)
+                        self.converter.convert_to_attribute_value(
+                            native_attr_descr.type, resource_attr_descr.allow_null, v
+                        )
                         for v, native_attr_descr in zip(value, native_attr_descrs)
                     )
                 else:
