@@ -611,6 +611,13 @@ class Mapper(typing.Generic[Tm]):
             if ctx.select_attribute(am):
                 if am.direction is Direction.TO_SERDE_ONLY:
                     continue
+                try:
+                    am.to_native(ctx, site_ctx, serde, builder)
+                except AttributeNotFoundError:
+                    if skip_missing:
+                        continue
+                    else:
+                        raise
                 for resource_attr_descr in am.serde_side_descrs:
                     if resource_attr_descr.immutable:
                         raise ImmutableAttributeError(
@@ -620,13 +627,6 @@ class Mapper(typing.Generic[Tm]):
                             if not isinstance(serde._source_, JSONPointer)
                             else serde._source_ / "attributes" / resource_attr_descr.name,
                         )
-                try:
-                    am.to_native(ctx, site_ctx, serde, builder)
-                except AttributeNotFoundError:
-                    if skip_missing:
-                        continue
-                    else:
-                        raise
         for rm in self.relationship_mappings:
             if ctx.select_relationship(rm):
                 try:
