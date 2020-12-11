@@ -292,7 +292,7 @@ def create_resource_attribute_descriptor_with_template(
             required_on_creation=maybe_unspecified(tpl.required_on_creation, required_on_creation),
             read_only=maybe_unspecified(tpl.read_only, read_only),
             write_only=maybe_unspecified(tpl.write_only, write_only),
-            immutable=immutable,
+            immutable=maybe_unspecified(tpl.immutable, immutable),
         )
 
 
