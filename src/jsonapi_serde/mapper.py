@@ -615,7 +615,7 @@ class Mapper(typing.Generic[Tm]):
                     if resource_attr_descr.immutable:
                         raise ImmutableAttributeError(
                             self.resource_descr,
-                            "attribute {resource_attr_descr.name} is immutable",
+                            f"attribute {resource_attr_descr.name} is immutable",
                             serde._source_
                             if not isinstance(serde._source_, JSONPointer)
                             else serde._source_ / "attributes" / resource_attr_descr.name,
