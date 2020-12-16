@@ -13,6 +13,7 @@ from ...exceptions import (
 )
 from ...interfaces import (
     MutationContext,
+    MutatorDescriptor,
     NativeAttributeDescriptor,
     NativeBuilder,
     NativeDescriptor,
@@ -89,12 +90,14 @@ class SQLAAttributeDescriptor(NativeAttributeDescriptor, typing.Generic[Tprop]):
     def fetch_value(self, target: typing.Any) -> typing.Any:
         return self.property.class_attribute.__get__(target, None)
 
-    def store_value(self, ctx: SQLAMutationContext, target: typing.Any, value: typing.Any) -> None:
+    def store_value(self, ctx: SQLAMutationContext, target: typing.Any, value: typing.Any) -> bool:
         if isinstance(self.property, orm.ColumnProperty):
             if is_alien_clause(self.property.parent, self.property.expression):
                 # we cannot perform updates on alien columns
-                return
+                return False
+        prev_value = self.fetch_value(target)
         self.property.class_attribute.__set__(target, value)
+        return prev_value != value
 
     def build_sql_expression(
         self, target_class: typing.Optional[typing.Type[typing.Any]] = None
@@ -187,10 +190,17 @@ class SQLABuilderBase(NativeBuilder):
     attrs: typing.Dict[SQLAAttributeDescriptor, typing.Any]
     to_one_rels: typing.Dict[SQLAToOneRelationshipDescriptor, SQLAToOneRelationshipBuilder]
     to_many_rels: typing.Dict[SQLAToManyRelationshipDescriptor, SQLAToManyRelationshipBuilder]
+    immutables: typing.Dict[SQLAAttributeDescriptor, MutatorDescriptor]
 
     def __setitem__(self, descr: NativeAttributeDescriptor, v: typing.Any) -> None:
         assert isinstance(descr, SQLAAttributeDescriptor)
         self.attrs[descr] = v
+
+    def mark_immutable(
+        self, descr: NativeAttributeDescriptor, mutator_descr: MutatorDescriptor
+    ) -> None:
+        assert isinstance(descr, SQLAAttributeDescriptor)
+        self.immutables[descr] = mutator_descr
 
     def to_one_relationship(
         self, descr: NativeToOneRelationshipDescriptor
@@ -211,7 +221,11 @@ class SQLABuilderBase(NativeBuilder):
     def update(self, ctx: MutationContext, obj: typing.Any):
         assert isinstance(ctx, SQLAMutationContext)
         for descr, v in self.attrs.items():
-            descr.store_value(ctx, obj, v)
+            if descr.store_value(ctx, obj, v):
+                mutator = self.immutables.get(descr)
+                if mutator:
+                    mutator.raise_immutable_attribute_error()
+
         for to_one_descr, to_one_builder in self.to_one_rels.items():
             id_ = to_one_builder(ctx)
             to_one_descr.replace_related(
@@ -236,6 +250,7 @@ class SQLABuilderBase(NativeBuilder):
         self.attrs = {}
         self.to_one_rels = {}
         self.to_many_rels = {}
+        self.immutables = {}
 
 
 class SQLABuilder(SQLABuilderBase):

@@ -4,6 +4,7 @@ from unittest import mock
 
 import pytest
 
+from ..exceptions import ImmutableAttributeError
 from ..interfaces import (
     Endpoint,
     NativeDescriptor,
@@ -154,6 +155,7 @@ class TestMapper:
                     type=int,
                     allow_null=False,
                     required_on_creation=True,
+                    immutable=True,
                 ),
             ],
             relationships=[
@@ -387,6 +389,13 @@ class TestMapper:
         assert result.bazs[0].id == "1"
         assert result.bazs[1].id == "2"
 
+    @pytest.mark.parametrize(
+        ("obj", "raises"),
+        [
+            (Foo(id=1, a="2", b=3, c=3, bar=None, bazs=[]), None),
+            (Foo(id=1, a="2", b=3, c=4, bar=None, bazs=[]), ImmutableAttributeError),
+        ],
+    )
     def test_update_with_serde(
         self,
         target,
@@ -395,6 +404,8 @@ class TestMapper:
         baz_mapper,
         baz_resource_descr,
         dummy_to_native_context,
+        obj,
+        raises,
     ):
         class DummyMutationContext(PlainMutationContext):
             def query_by_identity(self, descr: NativeDescriptor, id: typing.Any) -> typing.Any:
@@ -448,19 +459,23 @@ class TestMapper:
             ],
         )
 
-        obj = Foo(id=1, a="2", b=3, c=4, bar=None, bazs=[])
-
-        result = target.update_with_serde(
-            dummy_to_native_context, DummyMutationContext(), obj, serde
-        )
-        assert isinstance(result, Foo)
-        assert result.a == "1"
-        assert result.b == 2
-        assert result.c == 3
-        assert result.bar.id == "1"
-        assert len(result.bazs) == 2
-        assert result.bazs[0].id == "1"
-        assert result.bazs[1].id == "2"
+        if raises is not None:
+            with pytest.raises(raises):
+                target.update_with_serde(
+                    dummy_to_native_context, DummyMutationContext(), obj, serde
+                )
+        else:
+            result = target.update_with_serde(
+                dummy_to_native_context, DummyMutationContext(), obj, serde
+            )
+            assert isinstance(result, Foo)
+            assert result.a == "1"
+            assert result.b == 2
+            assert result.c == 3
+            assert result.bar.id == "1"
+            assert len(result.bazs) == 2
+            assert result.bazs[0].id == "1"
+            assert result.bazs[1].id == "2"
 
     @pytest.fixture
     def dummy_to_serde_context(

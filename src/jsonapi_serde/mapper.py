@@ -13,6 +13,7 @@ from .exceptions import (
 from .interfaces import (  # noqa: F401
     Endpoint,
     MutationContext,
+    MutatorDescriptor,
     NativeAttributeDescriptor,
     NativeBuilder,
     NativeDescriptor,
@@ -173,6 +174,23 @@ SerdeBuilderFilter = typing.Callable[
 ]
 
 
+@dataclasses.dataclass
+class MutatorDescriptorImpl(MutatorDescriptor):
+    descrs: typing.Sequence[ResourceAttributeDescriptor]
+    serde: ResourceRepr
+
+    def raise_immutable_attribute_error(self) -> None:
+        # TODO: handle multiple resource attributes
+        assert self.descrs[0].parent is not None
+        raise ImmutableAttributeError(
+            self.descrs[0].parent,
+            f"attribute {self.descrs[0].name} is immutable",
+            self.serde._source_
+            if not isinstance(self.serde._source_, JSONPointer)
+            else self.serde._source_ / "attributes" / self.descrs[0].name,
+        )
+
+
 Ta0 = typing.TypeVar("Ta0")
 
 
@@ -251,6 +269,10 @@ class ToOneAttributeMapping(AttributeMapping[Ta1], typing.Generic[Ta1]):
             ),
             self.serde_side.extract_value(blob),
         )
+        if self.serde_side.immutable:
+            builder.mark_immutable(
+                self.native_side, MutatorDescriptorImpl((self.serde_side,), blob)
+            )
 
     def __init__(
         self,
@@ -320,8 +342,11 @@ class ToManyAttributeMapping(AttributeMapping[Ta2], typing.Generic[Ta2]):
             raise ValueError(
                 f"serde side expected to yield {len(self.native_side)} items, got {len(result)}"
             )
+        mutator_descr = MutatorDescriptorImpl((self.serde_side,), blob)
         for n, v in zip(self.native_side, result):
             builder[n] = v
+            if self.serde_side.immutable:
+                builder.mark_immutable(n, mutator_descr)
 
     def __init__(
         self,
@@ -388,6 +413,8 @@ class ManyToOneAttributeMapping(AttributeMapping[Ta3], typing.Generic[Ta3]):
             ),
             [s.extract_value(blob) for s in self.serde_side],
         )
+        if any(resource_attr_descr.immutable for resource_attr_descr in self.serde_side):
+            builder.mark_immutable(self.native_side, MutatorDescriptorImpl(self.serde_side, blob))
 
     def __init__(
         self,
@@ -618,15 +645,6 @@ class Mapper(typing.Generic[Tm]):
                         continue
                     else:
                         raise
-                for resource_attr_descr in am.serde_side_descrs:
-                    if resource_attr_descr.immutable:
-                        raise ImmutableAttributeError(
-                            self.resource_descr,
-                            f"attribute {resource_attr_descr.name} is immutable",
-                            serde._source_
-                            if not isinstance(serde._source_, JSONPointer)
-                            else serde._source_ / "attributes" / resource_attr_descr.name,
-                        )
         for rm in self.relationship_mappings:
             if ctx.select_relationship(rm):
                 try:

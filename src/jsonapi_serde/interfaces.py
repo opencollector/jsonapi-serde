@@ -7,6 +7,11 @@ import abc
 import typing
 
 
+class MutatorDescriptor(metaclass=abc.ABCMeta):
+    def raise_immutable_attribute_error(self) -> None:
+        ...  # pragma: nocover
+
+
 class NativeAttributeDescriptor(metaclass=abc.ABCMeta):
     """
     A ``NativeAttributeDescriptor`` describes an attribute of a native object,
@@ -183,6 +188,19 @@ class NativeBuilder(metaclass=abc.ABCMeta):
 
         :param NativeAttributeDescriptor descr: The attribute descriptor that represents the attribute.
         :param Any v: The value to set.
+        """
+        ...  # pragma: nocover
+
+    @abc.abstractmethod
+    def mark_immutable(
+        self, descr: NativeAttributeDescriptor, mutator_descr: MutatorDescriptor
+    ) -> None:
+        """
+        Marks the specified attribute as immutable. If the corresponding attribute is to be changed,
+        the builder will end up raising :py:class:`ImmutableAttributeError`.
+
+        :param NativeAttributeDescriptor descr: The attribute descriptor that represents the attribute to mark immutable.
+        :param MutatorDescriptor mutator_descr: The mutator descriptor that describes a set of resource attribute descriptors.
         """
         ...  # pragma: nocover
 

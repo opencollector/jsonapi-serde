@@ -6,6 +6,7 @@ from sqlalchemy import orm  # type: ignore
 
 from ...interfaces import (
     MutationContext,
+    MutatorDescriptor,
     NativeAttributeDescriptor,
     NativeBuilder,
     NativeToManyRelationshipBuilder,
@@ -100,6 +101,11 @@ class QueryBuilder(NativeBuilder):
     def __setitem__(self, descr: NativeAttributeDescriptor, v: typing.Any) -> None:
         assert isinstance(descr, SQLAAttributeDescriptor)
         self.op = self.op_builder(self.op, descr.build_sql_expression(self.target_class), v)  # type: ignore
+
+    def mark_immutable(
+        self, descr: NativeAttributeDescriptor, mutator_descr: MutatorDescriptor
+    ) -> None:
+        pass
 
     def to_one_relationship(
         self, descr: NativeToOneRelationshipDescriptor

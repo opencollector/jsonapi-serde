@@ -6,6 +6,7 @@ from ..exceptions import NativeAttributeNotFoundError, NativeRelationshipNotFoun
 from ..interfaces import (
     Endpoint,
     MutationContext,
+    MutatorDescriptor,
     NativeAttributeDescriptor,
     NativeBuilder,
     NativeDescriptor,
@@ -44,9 +45,10 @@ class PlainNativeAttributeDescriptor(NativeAttributeDescriptor):
     def fetch_value(self, target: typing.Any) -> typing.Any:
         return getattr(target, self._name)
 
-    def store_value(self, target: typing.Any, value: typing.Any) -> typing.Any:
+    def store_value(self, target: typing.Any, value: typing.Any) -> bool:
+        prev_value = getattr(target, self._name)
         setattr(target, self._name, value)
-        return target
+        return value != prev_value
 
     def __init__(self, name: str, type, allow_null):
         self._name = name
@@ -148,10 +150,17 @@ class PlainBuilderBase(NativeBuilder):
         ],
         typing.Union[NativeToOneRelationshipBuilder, NativeToManyRelationshipBuilder],
     ]
+    immutables: typing.Dict[PlainNativeAttributeDescriptor, MutatorDescriptor]
 
     def __setitem__(self, descr: NativeAttributeDescriptor, v: typing.Any) -> None:
         assert isinstance(descr, PlainNativeAttributeDescriptor)
         self.attrs[descr] = v
+
+    def mark_immutable(
+        self, descr: NativeAttributeDescriptor, mutator_descr: MutatorDescriptor
+    ) -> None:
+        assert isinstance(descr, PlainNativeAttributeDescriptor)
+        self.immutables[descr] = mutator_descr
 
     def to_one_relationship(
         self, rel_descr: NativeToOneRelationshipDescriptor
@@ -174,6 +183,7 @@ class PlainBuilderBase(NativeBuilder):
         self.descr = descr
         self.attrs = {}
         self.relationships = {}
+        self.immutables = {}
 
 
 class PlainBuilder(PlainBuilderBase):
@@ -202,7 +212,11 @@ class PlainUpdater(PlainBuilderBase):
     def __call__(self, ctx: MutationContext) -> typing.Any:
         assert isinstance(ctx, PlainMutationContext)
         for descr, v in self.attrs.items():
-            descr.store_value(self.obj, v)
+            if descr.store_value(self.obj, v):
+                mutator_descr = self.immutables.get(descr)
+                if mutator_descr:
+                    mutator_descr.raise_immutable_attribute_error()
+
         for rel_descr, rb in self.relationships.items():
             if isinstance(rb, PlainToOneRelationshipBuilder):
                 rel_descr.replace_related(
