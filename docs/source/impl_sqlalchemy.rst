@@ -17,5 +17,3 @@ Internals
 ---------
 .. automodule:: jsonapi_serde.implementations.sqlalchemy.core
    :members:
-
-

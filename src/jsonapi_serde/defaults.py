@@ -87,7 +87,9 @@ class BasicTypeConverter(metaclass=abc.ABCMeta):
         ...
 
     @abc.abstractmethod
-    def convert_from_attribute_value(self, typ: typing.Type[Tn], value: AttributeValue) -> typing.Optional[Tn]:
+    def convert_from_attribute_value(
+        self, typ: typing.Type[Tn], value: AttributeValue
+    ) -> typing.Optional[Tn]:
         ...
 
 
@@ -116,7 +118,9 @@ class DefaultBasicTypeConverterImpl(BasicTypeConverter):
             return typing.cast(AttributeValue, value)  # TODO
         raise TypeError(f"failed to render a native value to an attribute value ({typ})")
 
-    def convert_from_attribute_value(self, typ: typing.Type[Tn], value: AttributeValue) -> typing.Optional[Tn]:
+    def convert_from_attribute_value(
+        self, typ: typing.Type[Tn], value: AttributeValue
+    ) -> typing.Optional[Tn]:
         if value is None:
             return None
         elif issubclass(typ, enum.Enum) and isinstance(value, str):
