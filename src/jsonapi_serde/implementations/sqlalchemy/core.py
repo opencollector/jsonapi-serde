@@ -218,10 +218,10 @@ class SQLABuilderBase(NativeBuilder):
         self.to_many_rels[descr] = builder
         return builder
 
-    def update(self, ctx: MutationContext, obj: typing.Any):
+    def update(self, ctx: MutationContext, obj: typing.Any, update: bool):
         assert isinstance(ctx, SQLAMutationContext)
         for descr, v in self.attrs.items():
-            if descr.store_value(ctx, obj, v):
+            if descr.store_value(ctx, obj, v) and update:
                 mutator = self.immutables.get(descr)
                 if mutator:
                     mutator.raise_immutable_attribute_error()
@@ -256,7 +256,7 @@ class SQLABuilderBase(NativeBuilder):
 class SQLABuilder(SQLABuilderBase):
     def __call__(self, ctx: MutationContext) -> typing.Any:
         obj = self.descr.mapper.class_()
-        self.update(ctx, obj)
+        self.update(ctx, obj, False)
         return obj
 
 
@@ -264,7 +264,7 @@ class SQLAUpdater(SQLABuilderBase):
     target: typing.Any
 
     def __call__(self, ctx: MutationContext) -> typing.Any:
-        self.update(ctx, self.target)
+        self.update(ctx, self.target, True)
         return self.target
 
     def __init__(self, descr: "SQLADescriptor", target: typing.Any):
