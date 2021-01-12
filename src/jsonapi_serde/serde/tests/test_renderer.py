@@ -10,7 +10,7 @@ def target_class():
     return ReprRenderer
 
 
-def test_basic(target_class):
+def test_singleton(target_class):
     from ..models import (
         LinkageRepr,
         LinksRepr,
@@ -112,6 +112,269 @@ def test_basic(target_class):
                 },
             },
         },
+    }
+
+
+def test_collection(target_class):
+    from ..models import (
+        LinkageRepr,
+        LinksRepr,
+        ResourceIdRepr,
+        ResourceRepr,
+        CollectionDocumentRepr,
+    )
+
+    target = target_class()
+
+    result = target(
+        CollectionDocumentRepr(
+            links=LinksRepr(
+                self_="/foos/1",
+            ),
+            data=[
+                ResourceRepr(
+                    type="foos",
+                    id="1",
+                    attributes=[
+                        ("a", 1),
+                        ("b", 2),
+                        ("c", 3),
+                    ],
+                    relationships=[
+                        (
+                            "item",
+                            LinkageRepr(
+                                links=LinksRepr(
+                                    self_="/foos/1/relationships/bars/1",
+                                    related="/bars/1",
+                                ),
+                                data=ResourceIdRepr(
+                                    type="bars",
+                                    id="1",
+                                ),
+                            ),
+                        ),
+                        (
+                            "items",
+                            LinkageRepr(
+                                links=LinksRepr(
+                                    self_="/foos/1/relationships/bars",
+                                    related="/bars",
+                                ),
+                                data=[
+                                    ResourceIdRepr(
+                                        type="bars",
+                                        id="1",
+                                    ),
+                                    ResourceIdRepr(
+                                        type="bars",
+                                        id="2",
+                                    ),
+                                ],
+                            ),
+                        ),
+                    ],
+                ),
+                ResourceRepr(
+                    type="foos",
+                    id="2",
+                    attributes=[
+                        ("a", 3),
+                        ("b", 4),
+                        ("c", 5),
+                    ],
+                    relationships=[
+                        (
+                            "item",
+                            LinkageRepr(
+                                links=LinksRepr(
+                                    self_="/foos/1/relationships/bars/1",
+                                    related="/bars/1",
+                                ),
+                                data=ResourceIdRepr(
+                                    type="bars",
+                                    id="1",
+                                ),
+                            ),
+                        ),
+                        (
+                            "items",
+                            LinkageRepr(
+                                links=LinksRepr(
+                                    self_="/foos/1/relationships/bars",
+                                    related="/bars",
+                                ),
+                                data=[
+                                    ResourceIdRepr(
+                                        type="bars",
+                                        id="1",
+                                    ),
+                                    ResourceIdRepr(
+                                        type="bars",
+                                        id="2",
+                                    ),
+                                ],
+                            ),
+                        ),
+                    ],
+                ),
+            ],
+        ),
+    )
+    assert result == {
+        "links": {
+            "self": "/foos/1",
+        },
+        "data": [
+            {
+                "type": "foos",
+                "id": "1",
+                "attributes": {
+                    "a": 1,
+                    "b": 2,
+                    "c": 3,
+                },
+                "relationships": {
+                    "item": {
+                        "links": {
+                            "self": "/foos/1/relationships/bars/1",
+                            "related": "/bars/1",
+                        },
+                        "data": {
+                            "type": "bars",
+                            "id": "1",
+                        },
+                    },
+                    "items": {
+                        "links": {
+                            "self": "/foos/1/relationships/bars",
+                            "related": "/bars",
+                        },
+                        "data": [
+                            {
+                                "type": "bars",
+                                "id": "1",
+                            },
+                            {
+                                "type": "bars",
+                                "id": "2",
+                            },
+                        ],
+                    },
+                },
+            },
+            {
+                "type": "foos",
+                "id": "2",
+                "attributes": {
+                    "a": 3,
+                    "b": 4,
+                    "c": 5,
+                },
+                "relationships": {
+                    "item": {
+                        "links": {
+                            "self": "/foos/1/relationships/bars/1",
+                            "related": "/bars/1",
+                        },
+                        "data": {
+                            "type": "bars",
+                            "id": "1",
+                        },
+                    },
+                    "items": {
+                        "links": {
+                            "self": "/foos/1/relationships/bars",
+                            "related": "/bars",
+                        },
+                        "data": [
+                            {
+                                "type": "bars",
+                                "id": "1",
+                            },
+                            {
+                                "type": "bars",
+                                "id": "2",
+                            },
+                        ],
+                    },
+                },
+            },
+        ],
+    }
+
+
+def test_to_one_rel(target_class):
+    from ..models import (
+        LinksRepr,
+        ResourceIdRepr,
+        ToOneRelDocumentRepr,
+    )
+
+    target = target_class()
+
+    result = target(
+        ToOneRelDocumentRepr(
+            links=LinksRepr(
+                self_="/foos/1",
+            ),
+            data=ResourceIdRepr(
+                type="foos",
+                id="1",
+            ),
+        ),
+    )
+    assert result == {
+        "links": {
+            "self": "/foos/1",
+        },
+        "data": {
+            "type": "foos",
+            "id": "1",
+        },
+    }
+
+
+def test_to_many_rel(target_class):
+    from ..models import (
+        LinksRepr,
+        ResourceIdRepr,
+        ToManyRelDocumentRepr,
+    )
+
+    target = target_class()
+
+    result = target(
+        ToManyRelDocumentRepr(
+            links=LinksRepr(
+                self_="/foos/1",
+            ),
+            data=[
+                ResourceIdRepr(
+                    type="foos",
+                    id="1",
+                ),
+                ResourceIdRepr(
+                    type="foos",
+                    id="2",
+                ),
+            ],
+        ),
+    )
+    assert result == {
+        "links": {
+            "self": "/foos/1",
+        },
+        "data": [
+            {
+                "type": "foos",
+                "id": "1",
+            },
+            {
+                "type": "foos",
+                "id": "2",
+            },
+        ],
     }
 
 

@@ -70,6 +70,8 @@ from .models import (
     ResourceIdRepr,
     ResourceRepr,
     SingletonDocumentRepr,
+    ToManyRelDocumentRepr,
+    ToOneRelDocumentRepr,
     SourceRepr,
 )
 from .types import JSONScalar, MutableJSONObject
@@ -316,6 +318,26 @@ class ReprRenderer:
         ]
         return retval
 
+    def _render_to_one_rel_document(
+        self, ctx: ReprRendererContext, repr_: ToOneRelDocumentRepr
+    ) -> MutableJSONObject:
+        retval: MutableJSONObject = {}
+        self._populate_document_common(retval, ctx, repr_)
+        if repr_.data is not None:
+            retval["data"] = self._render_resource_link((ctx / "data") | repr_, repr_.data)
+        return retval
+
+    def _render_to_many_rel_document(
+        self, ctx: ReprRendererContext, repr_: ToManyRelDocumentRepr
+    ) -> MutableJSONObject:
+        retval: MutableJSONObject = {}
+        self._populate_document_common(retval, ctx, repr_)
+        retval["data"] = [
+            self._render_resource_link((ctx / "data")[i] | repr_, item)
+            for i, item in enumerate(repr_.data)
+        ]
+        return retval
+
     def __call__(
         self, repr_: typing.Union[SingletonDocumentRepr, CollectionDocumentRepr]
     ) -> MutableJSONObject:
@@ -324,6 +346,10 @@ class ReprRenderer:
             return self._render_singleton_document(ctx, repr_)
         elif isinstance(repr_, CollectionDocumentRepr):
             return self._render_collection_document(ctx, repr_)
+        if isinstance(repr_, ToOneRelDocumentRepr):
+            return self._render_to_one_rel_document(ctx, repr_)
+        elif isinstance(repr_, ToManyRelDocumentRepr):
+            return self._render_to_many_rel_document(ctx, repr_)
         else:
             raise AssertionError("never get here")
 
