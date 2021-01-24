@@ -139,6 +139,68 @@ def test_pytyped_jsonic_data_converter_array(expected, input):
     ("expected", "input"),
     [
         (
+            "",
+            (typing.Union[str, typing.Sequence[str]], ""),
+        ),
+        (
+            "0",
+            (typing.Union[str, typing.Sequence[str]], "0"),
+        ),
+        (
+            [],
+            (typing.Union[str, typing.Sequence[str]], []),
+        ),
+        (
+            [],
+            (typing.Union[str, typing.Sequence[str]], ()),
+        ),
+        (
+            "",
+            (typing.Union[str, typing.List[str], typing.Tuple[str, ...]], ""),
+        ),
+        (
+            "0",
+            (typing.Union[str, typing.List[str], typing.Tuple[str, ...]], "0"),
+        ),
+        (
+            [],
+            (typing.Union[str, typing.List[str], typing.Tuple[str, ...]], []),
+        ),
+        (
+            (),
+            (typing.Union[str, typing.List[str], typing.Tuple[str, ...]], ()),
+        ),
+    ],
+)
+def test_pytyped_jsonic_data_converter_iterable_union(expected, input):
+    from ..converter import PyTypedJsonicDataConverter
+
+    assert PyTypedJsonicDataConverter()(input[0], input[1]) == expected
+
+
+@pytest.mark.parametrize(
+    ("expected", "input"),
+    [
+        (
+            ("a",),
+            (typing.Tuple[str], ["a"]),
+        ),
+        (
+            ("a", 1),
+            (typing.Tuple[str, int], ["a", 1]),
+        ),
+    ],
+)
+def test_pytyped_jsonic_data_converter_tuples(expected, input):
+    from ..converter import PyTypedJsonicDataConverter
+
+    assert PyTypedJsonicDataConverter()(input[0], input[1]) == expected
+
+
+@pytest.mark.parametrize(
+    ("expected", "input"),
+    [
+        (
             {1, 2},
             (typing.Set[int], [1, 2]),
         ),

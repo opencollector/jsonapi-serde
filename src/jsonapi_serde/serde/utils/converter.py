@@ -361,7 +361,7 @@ class PyTypedJsonicDataConverter:
         self, ctx: ConverterContext, pointer: JSONPointer, typ: typing.Type, value: JsonicValue
     ) -> typing.Tuple[JsonicValue, float]:
         if isinstance(value, typ):
-            return value, 1.0
+            return value, 0.5
         if isinstance(value, str):
             if issubclass(typ, datetime.datetime):
                 try:
@@ -451,7 +451,7 @@ class PyTypedJsonicDataConverter:
             pair = self._convert(ctx, pointer[i], typ, item)
             retval.append(pair[0])
             confidence *= pair[1]
-        return retval, confidence ** (1 / float(len(value))) if value else 1.0
+        return (retval, confidence ** (1 / float(len(value))) if value else 2.0)
 
     def _convert_with_set(
         self, ctx: ConverterContext, pointer: JSONPointer, typ: JsonicType, value: JSONArray
@@ -478,7 +478,7 @@ class PyTypedJsonicDataConverter:
             confidence *= pair[1]
         return (
             typing.cast(JsonicSet, retval),
-            confidence ** (1 / float(len(value))) if value else 1.0,
+            confidence ** (1 / float(len(value))) if value else 2.0,
         )  # this cast should've been unnecessary, because Sequences are casted implicitly in a covariant context.
 
     def _convert_with_homogenious_object(
@@ -517,12 +517,44 @@ class PyTypedJsonicDataConverter:
                 n = _n
             retval[n] = jv_pair[0]
             confidence *= math.sqrt(jk_pair[1] * jv_pair[1])
-        return retval, confidence ** (1 / float(len(value))) if value else 1.0
+        return (retval, confidence ** (1 / float(len(value))) if value else 2.0)
 
     def _convert_with_generic_type(self, ctx: ConverterContext, pointer: JSONPointer, typ: typing._GenericAlias, value: JSONValue) -> typing.Tuple[JsonicValue, float]:  # type: ignore
         origin = typing.cast(abc.ABCMeta, typing.get_origin(typ))
         args = typing.get_args(typ)
-        if issubclass(origin, collections.abc.Sequence):
+        if issubclass(origin, tuple):
+            if len(args) == 2 and args[1] is ...:
+                elem_type = args[0]
+                if not isinstance(value, collections.abc.Sequence):
+                    ctx.validation_error_occurred(
+                        JsonicDataValidationError(
+                            pointer,
+                            f"value has type {self.py_type_repr(type(value))} ({json.dumps(value)}) where an array of {self.type_repr(elem_type)} expected",
+                        )
+                    )
+                    return (None, math.inf)
+                pair = self._convert_with_array(ctx, pointer, elem_type, value)
+                confidence = pair[1]
+                if isinstance(value, tuple):
+                    confidence *= 0.5
+                return (tuple(pair[0]), confidence)
+            else:
+                if not isinstance(value, collections.abc.Sequence) or len(args) != len(value):
+                    ctx.validation_error_occurred(
+                        JsonicDataValidationError(
+                            pointer,
+                            f"value has type {self.py_type_repr(type(value))} ({json.dumps(value)}) where an array [{', '.join(self.type_repr(elem_type) for elem_type in args)}] expected",
+                        )
+                    )
+                    return (None, math.inf)
+                confidence = 1.0
+                retval: typing.MutableSequence[JsonicValue] = []
+                for i, (elem_type, v) in enumerate(zip(args, value)):
+                    _pair = self._convert_inner(ctx, pointer[i], elem_type, v)
+                    retval.append(_pair[0])
+                    confidence *= _pair[1]
+                return (tuple(retval), confidence ** (1 / float(len(value))) if value else 2.0)
+        elif issubclass(origin, collections.abc.Sequence):
             assert len(args) == 1
             elem_type = args[0]
             if not isinstance(value, collections.abc.Sequence):
