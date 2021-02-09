@@ -6,6 +6,7 @@ from collections import OrderedDict
 import sqlalchemy as sa  # type: ignore
 from sqlalchemy import orm  # type: ignore
 
+from ...deferred import Deferred, Promise
 from ...exceptions import (
     InvalidIdentifierError,
     NativeAttributeNotFoundError,
@@ -20,8 +21,11 @@ from ...interfaces import (
     NativeRelationshipDescriptor,
     NativeToManyRelationshipBuilder,
     NativeToManyRelationshipDescriptor,
+    NativeToManyRelationshipManipulator,
     NativeToOneRelationshipBuilder,
     NativeToOneRelationshipDescriptor,
+    NativeToOneRelationshipManipulator,
+    NativeUpdater,
 )
 
 
@@ -159,11 +163,39 @@ class SQLAToOneRelationshipBuilder(SQLARelationshipDescriptor, NativeToOneRelati
         self.descr = descr
 
 
+class Manipulation(typing.Protocol):
+    added: typing.MutableSequence[typing.Tuple[typing.Any, Promise[bool]]]
+    removed: typing.MutableMapping[typing.Any, Promise[bool]]
+
+
 class SQLAToManyRelationshipDescriptor(
     SQLARelationshipDescriptor, NativeToManyRelationshipDescriptor
 ):
     def fetch_related(self, target: typing.Any) -> typing.Iterable[typing.Any]:
         return self.property.class_attribute.__get__(target, None)
+
+    def manipulate_related(self, target: typing.Any, manip: "Manipulation"):
+        col = self.fetch_related(target)
+        if len(manip.removed) > 0:
+            new_rels: typing.List[typing.Any] = []
+            remainder = dict(manip.removed)
+            for rel in col:
+                id_ = self.destination.descr.get_identity(rel)
+                p = remainder.pop(id_, None)
+                if p is not None:
+                    new_rels.append(rel)
+                    p.set(True)
+            for v in remainder.values():
+                v.set(False)
+            for added, p in manip.added:
+                new_rels.append(added)
+                p.set(True)
+            self.replace_related(target, new_rels)
+        else:
+            assert hasattr(col, "append")
+            for added, p in manip.added:
+                col.append(added)  # type: ignore
+                p.set(True)
 
     def replace_related(self, target: typing.Any, new: typing.Iterable[typing.Any]) -> None:
         self.property.class_attribute.__get__(target, None)[:] = new
@@ -185,7 +217,7 @@ class SQLAToManyRelationshipBuilder(NativeToManyRelationshipBuilder):
         self.ids = []
 
 
-class SQLABuilderBase(NativeBuilder):
+class SQLABuilderBase:
     descr: "SQLADescriptor"
     attrs: typing.Dict[SQLAAttributeDescriptor, typing.Any]
     to_one_rels: typing.Dict[SQLAToOneRelationshipDescriptor, SQLAToOneRelationshipBuilder]
@@ -204,7 +236,7 @@ class SQLABuilderBase(NativeBuilder):
 
     def to_one_relationship(
         self, descr: NativeToOneRelationshipDescriptor
-    ) -> SQLAToOneRelationshipBuilder:
+    ) -> NativeToOneRelationshipBuilder:
         assert isinstance(descr, SQLAToOneRelationshipDescriptor)
         builder = SQLAToOneRelationshipBuilder(descr)
         self.to_one_rels[descr] = builder
@@ -212,7 +244,7 @@ class SQLABuilderBase(NativeBuilder):
 
     def to_many_relationship(
         self, descr: NativeToManyRelationshipDescriptor
-    ) -> SQLAToManyRelationshipBuilder:
+    ) -> NativeToManyRelationshipBuilder:
         assert isinstance(descr, SQLAToManyRelationshipDescriptor)
         builder = SQLAToManyRelationshipBuilder(descr)
         self.to_many_rels[descr] = builder
@@ -253,23 +285,120 @@ class SQLABuilderBase(NativeBuilder):
         self.immutables = {}
 
 
-class SQLABuilder(SQLABuilderBase):
+class SQLABuilder(SQLABuilderBase, NativeBuilder):
     def __call__(self, ctx: MutationContext) -> typing.Any:
         obj = self.descr.mapper.class_()
         self.update(ctx, obj, False)
         return obj
 
 
-class SQLAUpdater(SQLABuilderBase):
+class SQLAToOneRelationshipManipulator(NativeToOneRelationshipManipulator):
+    descr: SQLAToOneRelationshipDescriptor
+    unset_id: typing.Optional[typing.Any] = None
+    set_id: typing.Optional[typing.Any] = None
+    promise: typing.Optional[Promise[bool]] = None
+
+    def nullify(self) -> Deferred[bool]:
+        assert self.promise is None
+        self.promise = Promise[bool]()
+        return self.promise
+
+    def unset(self, id: typing.Any) -> Deferred[bool]:
+        assert self.promise is None
+        self.promise = Promise[bool]()
+        self.unset_id = id
+        return self.promise
+
+    def set(self, id: typing.Any) -> Deferred[bool]:
+        assert self.promise is None
+        self.promise = Promise[bool]()
+        self.set_id = id
+        return self.promise
+
+    def __init__(self, descr: SQLAToOneRelationshipDescriptor):
+        self.descr = descr
+
+
+class SQLAToManyRelationshipManipulator(NativeToManyRelationshipManipulator):
+    descr: SQLAToManyRelationshipDescriptor
+    added: typing.MutableSequence[typing.Tuple[typing.Any, Promise[bool]]]
+    removed: typing.MutableMapping[typing.Any, Promise[bool]]
+
+    def add(self, id: typing.Any) -> Deferred[bool]:
+        p = Promise[bool]()
+        self.added.append((id, p))
+        return p
+
+    def remove(self, id: typing.Any) -> Deferred[bool]:
+        p = Promise[bool]()
+        self.removed[id] = p
+        return p
+
+    def __init__(self, descr: SQLAToManyRelationshipDescriptor):
+        self.descr = descr
+        self.added = []
+        self.removed = {}
+
+
+class SQLAUpdater(SQLABuilderBase, NativeUpdater):
     target: typing.Any
+    to_one_manips: typing.Dict[SQLAToOneRelationshipDescriptor, SQLAToOneRelationshipManipulator]
+    to_many_manips: typing.Dict[SQLAToManyRelationshipDescriptor, SQLAToManyRelationshipManipulator]
+
+    def to_one_relationship_manipulator(
+        self, descr: NativeToOneRelationshipDescriptor
+    ) -> NativeToOneRelationshipManipulator:
+        assert isinstance(descr, SQLAToOneRelationshipDescriptor)
+        manip = SQLAToOneRelationshipManipulator(descr)
+        self.to_one_manips[descr] = manip
+        return manip
+
+    def to_many_relationship_manipulator(
+        self, descr: NativeToManyRelationshipDescriptor
+    ) -> NativeToManyRelationshipManipulator:
+        assert isinstance(descr, SQLAToManyRelationshipDescriptor)
+        manip = SQLAToManyRelationshipManipulator(descr)
+        self.to_many_manips[descr] = manip
+        return manip
 
     def __call__(self, ctx: MutationContext) -> typing.Any:
+        assert isinstance(ctx, SQLAMutationContext)
         self.update(ctx, self.target, True)
+        for to_one_manip in self.to_one_manips.values():
+            if to_one_manip.promise is not None:
+                old_obj = to_one_manip.descr.fetch_related(self.target)
+                old_id = (
+                    to_one_manip.descr.destination.belonged_to.get_identity(old_obj)
+                    if old_obj is not None
+                    else None
+                )
+                if to_one_manip.unset_id is not None:
+                    if old_id == to_one_manip.unset_id:
+                        to_one_manip.descr.replace_related(self.target, None)
+                        to_one_manip.promise.set(True)  # type: ignore
+                    else:
+                        to_one_manip.promise.set(False)  # type: ignore
+                else:
+                    to_one_manip.descr.replace_related(
+                        self.target,
+                        (
+                            ctx.query_by_identity(
+                                to_one_manip.descr.destination, to_one_manip.set_id
+                            )
+                            if to_one_manip.set_id is not None
+                            else None
+                        ),
+                    )
+                    to_one_manip.promise.set(True)  # type: ignore
+        for to_many_manip in self.to_many_manips.values():
+            to_many_manip.descr.manipulate_related(self.target, to_many_manip)
         return self.target
 
     def __init__(self, descr: "SQLADescriptor", target: typing.Any):
         super().__init__(descr)
         self.target = target
+        self.to_one_manips = {}
+        self.to_many_manips = {}
 
 
 class TableDeducible(typing.Protocol):
@@ -295,7 +424,7 @@ class SQLADescriptor(NativeDescriptor):
     def new_builder(self) -> NativeBuilder:
         return SQLABuilder(self)
 
-    def new_updater(self, target: typing.Any) -> NativeBuilder:
+    def new_updater(self, target: typing.Any) -> NativeUpdater:
         return SQLAUpdater(self, target)
 
     def _populate_attrs_and_rels(self) -> None:

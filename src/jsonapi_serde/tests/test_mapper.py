@@ -748,3 +748,184 @@ class TestMapper:
                 ),
             ),
         )
+
+    def test_update_to_one_rel_with_serde(self, target, bar_mapper, dummy_to_native_context):
+        class DummyMutationContext(PlainMutationContext):
+            def query_by_identity(self, descr: NativeDescriptor, id: typing.Any) -> typing.Any:
+                if descr is bar_mapper.native_descr:
+                    return Bar(id=id, d="2", e=3)
+                raise AssertionError()
+
+        native = Foo(
+            a="1",
+            b=2,
+            c=3,
+            id="1",
+            bar=Bar(d="1", e=2, id="1"),
+        )
+        serde = ResourceIdRepr(type="bar", id="3")
+        result = target.update_to_one_rel_with_serde(
+            dummy_to_native_context,
+            DummyMutationContext(),
+            native,
+            target.get_relationship_mapping_by_serde_name(None, "bar"),
+            serde,
+        )
+        assert result.bar == Bar(d="2", e=3, id="3")
+
+        native = Foo(
+            a="1",
+            b=2,
+            c=3,
+            id="1",
+            bar=Bar(d="1", e=2, id="1"),
+        )
+        result = target.update_to_one_rel_with_serde(
+            dummy_to_native_context,
+            DummyMutationContext(),
+            native,
+            target.get_relationship_mapping_by_serde_name(None, "bar"),
+            None,
+        )
+        assert result.bar is None
+
+    def test_update_to_many_rel_with_serde(self, target, baz_mapper, dummy_to_native_context):
+        class DummyMutationContext(PlainMutationContext):
+            def query_by_identity(self, descr: NativeDescriptor, id: typing.Any) -> typing.Any:
+                if descr is baz_mapper.native_descr:
+                    return Baz(id=id, f=5, g="6")
+                raise AssertionError()
+
+        native = Foo(
+            a="1",
+            b=2,
+            c=3,
+            id="1",
+            bazs=[
+                Baz(f=1, g="2", id="1"),
+                Baz(f=3, g="4", id="2"),
+            ],
+        )
+        serde = [
+            ResourceIdRepr(type="baz", id="3"),
+        ]
+        result = target.update_to_many_rel_with_serde(
+            dummy_to_native_context,
+            DummyMutationContext(),
+            native,
+            target.get_relationship_mapping_by_serde_name(None, "bazs"),
+            serde,
+        )
+        assert result.bazs == [Baz(f=5, g="6", id="3")]
+
+    def test_add_to_one_rel_with_serde(self, target, bar_mapper, dummy_to_native_context):
+        class DummyMutationContext(PlainMutationContext):
+            def query_by_identity(self, descr: NativeDescriptor, id: typing.Any) -> typing.Any:
+                if descr is bar_mapper.native_descr:
+                    return Bar(id=id, d="2", e=3)
+                raise AssertionError()
+
+        native = Foo(a="1", b=2, c=3, id="1", bar=None)
+        serde = ResourceIdRepr(type="bar", id="3")
+        result, changed = target.add_to_one_rel_with_serde(
+            dummy_to_native_context,
+            DummyMutationContext(),
+            native,
+            target.get_relationship_mapping_by_serde_name(None, "bar"),
+            serde,
+        )
+        assert changed
+        assert result.bar == Bar(d="2", e=3, id="3")
+
+    def test_remove_to_one_rel_with_serde(self, target, bar_mapper, dummy_to_native_context):
+        class DummyMutationContext(PlainMutationContext):
+            def query_by_identity(self, descr: NativeDescriptor, id: typing.Any) -> typing.Any:
+                if descr is bar_mapper.native_descr:
+                    return Bar(id=id, d="2", e=3)
+                raise AssertionError()
+
+        native = Foo(a="1", b=2, c=3, id="1", bar=None)
+        serde = ResourceIdRepr(type="bar", id="3")
+        result, changed = target.remove_to_one_rel_with_serde(
+            dummy_to_native_context,
+            DummyMutationContext(),
+            native,
+            target.get_relationship_mapping_by_serde_name(None, "bar"),
+            serde,
+        )
+        assert not changed
+        assert result.bar is None
+
+        native = Foo(a="1", b=2, c=3, id="1", bar=Bar(d="1", e=2, id="1"))
+        serde = ResourceIdRepr(type="bar", id="3")
+        result, changed = target.remove_to_one_rel_with_serde(
+            dummy_to_native_context,
+            DummyMutationContext(),
+            native,
+            target.get_relationship_mapping_by_serde_name(None, "bar"),
+            serde,
+        )
+        assert not changed
+        assert result.bar is not None
+
+        native = Foo(a="1", b=2, c=3, id="1", bar=Bar(d="1", e=2, id="1"))
+        serde = ResourceIdRepr(type="bar", id="1")
+        result, changed = target.remove_to_one_rel_with_serde(
+            dummy_to_native_context,
+            DummyMutationContext(),
+            native,
+            target.get_relationship_mapping_by_serde_name(None, "bar"),
+            serde,
+        )
+        assert changed
+        assert result.bar is None
+
+    def test_add_to_many_rel_with_serde(self, target, baz_mapper, dummy_to_native_context):
+        class DummyMutationContext(PlainMutationContext):
+            def query_by_identity(self, descr: NativeDescriptor, id: typing.Any) -> typing.Any:
+                if descr is baz_mapper.native_descr:
+                    return Baz(id=id, f=3, g="4")
+                raise AssertionError()
+
+        native = Foo(a="1", b=2, c=3, id="1", bar=None, bazs=[Baz(f=1, g="2", id="1")])
+        result, changes = target.add_to_many_rel_with_serde(
+            dummy_to_native_context,
+            DummyMutationContext(),
+            native,
+            target.get_relationship_mapping_by_serde_name(None, "bazs"),
+            [
+                ResourceIdRepr(type="baz", id="2"),
+                ResourceIdRepr(type="baz", id="3"),
+            ],
+        )
+        assert len(changes) == 2
+        assert len(result.bazs) == 3
+        assert changes == [
+            (ResourceIdRepr(type="baz", id="2"), True),
+            (ResourceIdRepr(type="baz", id="3"), True),
+        ]
+
+    def test_remove_to_many_rel_with_serde(self, target, baz_mapper, dummy_to_native_context):
+        class DummyMutationContext(PlainMutationContext):
+            def query_by_identity(self, descr: NativeDescriptor, id: typing.Any) -> typing.Any:
+                if descr is baz_mapper.native_descr:
+                    return Baz(id=id, f=3, g="4")
+                raise AssertionError()
+
+        native = Foo(a="1", b=2, c=3, id="1", bar=None, bazs=[Baz(f=1, g="2", id="1")])
+        result, changes = target.remove_to_many_rel_with_serde(
+            dummy_to_native_context,
+            DummyMutationContext(),
+            native,
+            target.get_relationship_mapping_by_serde_name(None, "bazs"),
+            [
+                ResourceIdRepr(type="baz", id="2"),
+                ResourceIdRepr(type="baz", id="3"),
+            ],
+        )
+        assert len(changes) == 2
+        assert len(result.bazs) == 1
+        assert changes == [
+            (ResourceIdRepr(type="baz", id="2"), False),
+            (ResourceIdRepr(type="baz", id="3"), False),
+        ]

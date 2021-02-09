@@ -6,6 +6,8 @@ implemented by the implemention-dependent backend provider.
 import abc
 import typing
 
+from .deferred import Deferred
+
 
 class MutatorDescriptor(metaclass=abc.ABCMeta):
     def raise_immutable_attribute_error(self) -> None:
@@ -160,10 +162,47 @@ class NativeToOneRelationshipBuilder(metaclass=abc.ABCMeta):
         ...  # pragma: nocover
 
 
+class NativeToOneRelationshipManipulator(metaclass=abc.ABCMeta):
+    """
+    A ``NativeToOneRelationshipManipulator`` constitutes the series of the "builder"
+    objects. It is responsible for modifying a one-to-one relationship
+    between two native objects.
+    """
+
+    @abc.abstractmethod
+    def nullify(self) -> Deferred[bool]:
+        """
+        Sets the updater to not having any counterpart.
+        """
+        ...  # pragma: nocover
+
+    @abc.abstractmethod
+    def unset(self, id: typing.Any) -> Deferred[bool]:
+        """
+        Sets the builder to not having the counterpart native object.
+
+        :param Any id: A native identifier.
+        :return: a Deferred object that will get its value set to a boolean value
+                 that indicates if the manipulation is successfully done.
+        """
+        ...  # pragma: nocover
+
+    @abc.abstractmethod
+    def set(self, id: typing.Any) -> Deferred[bool]:
+        """
+        Sets the builder so that it will yield a counterpart native object.
+
+        :param Any id: A native identifier.
+        :return: a Deferred object that will get its value set to a boolean value
+                 that indicates if the manipulation is successfully done.
+        """
+        ...  # pragma: nocover
+
+
 class NativeToManyRelationshipBuilder(metaclass=abc.ABCMeta):
     """
     A ``NativeToManyRelationshipBuilder`` constitutes the series of the "builder"
-    objects. It is responsible for building a one-to-many relationship
+    objects. It is responsible for modifying a one-to-many relationship
     from a single native object to multiple native objects.
     """
 
@@ -171,6 +210,36 @@ class NativeToManyRelationshipBuilder(metaclass=abc.ABCMeta):
     def next(self, id: typing.Any):
         """
         Set the builder so as to have the specified native identifier
+        """
+        ...  # pragma: nocover
+
+
+class NativeToManyRelationshipManipulator(metaclass=abc.ABCMeta):
+    """
+    A ``NativeToManyRelationshipManipulator`` represents a batch of
+    operations on a one-to-many relationship from a single native object
+    to multiple native objects.
+    """
+
+    @abc.abstractmethod
+    def add(self, id: typing.Any) -> Deferred[bool]:
+        """
+        Add a new relationship.
+
+        :param Any id: A native identifier.
+        :return: a Deferred object that will get its value set to a boolean value
+                 that indicates if the manipulation is successfully done.
+        """
+        ...  # pragma: nocover
+
+    @abc.abstractmethod
+    def remove(self, id: typing.Any) -> Deferred[bool]:
+        """
+        Remove an existing relationship.
+
+        :param Any id: A native identifier.
+        :return: a Deferred object that will get its value set to a boolean value
+                 that indicates if the manipulation is successfully done.
         """
         ...  # pragma: nocover
 
@@ -239,6 +308,32 @@ class NativeBuilder(metaclass=abc.ABCMeta):
         ...  # pragma: nocover
 
 
+class NativeUpdater(NativeBuilder):
+    @abc.abstractmethod
+    def to_one_relationship_manipulator(
+        self, descr: NativeToOneRelationshipDescriptor
+    ) -> NativeToOneRelationshipManipulator:
+        """
+        Returns a ``NativeToOneRelationshipManipulator`` to manipulate a one-to-one relationship.
+
+        :param NativeToOneRelationshipDescriptor descr: The relationship descriptor that represents the relationship.
+        :return: The relationship manipulator.
+        """
+        ...  # pragma: nocover
+
+    @abc.abstractmethod
+    def to_many_relationship_manipulator(
+        self, descr: NativeToManyRelationshipDescriptor
+    ) -> NativeToManyRelationshipManipulator:
+        """
+        Returns a ``NativeToManyRelationshipManipulator`` to manipulator a one-to-many relationship.
+
+        :param NativeToManyRelationshipDescriptor descr: The relationship descriptor that represents the relationship.
+        :return: The relationship manipulator.
+        """
+        ...  # pragma: nocover
+
+
 class NativeDescriptor(metaclass=abc.ABCMeta):
     """
     A ``NativeDescriptor`` denotes the properties of a native object.
@@ -262,11 +357,11 @@ class NativeDescriptor(metaclass=abc.ABCMeta):
         """
 
     @abc.abstractmethod
-    def new_updater(self, target: typing.Any) -> NativeBuilder:
+    def new_updater(self, target: typing.Any) -> NativeUpdater:
         """
-        Returns a new ``NativeBuilder`` object for updating a native objects.
+        Returns a new ``NativeUpdater`` object for updating a native objects.
 
-        :return: A new ``NativeBuilder`` instance.
+        :return: A new ``NativeUpdater`` instance.
         """
 
     @property

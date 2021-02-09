@@ -4,6 +4,7 @@ import dataclasses
 import enum
 import typing
 
+from .deferred import Deferred
 from .exceptions import (
     AttributeNotFoundError,
     ImmutableAttributeError,
@@ -22,6 +23,7 @@ from .interfaces import (  # noqa: F401
     NativeToManyRelationshipDescriptor,
     NativeToOneRelationshipBuilder,
     NativeToOneRelationshipDescriptor,
+    NativeUpdater,
     PaginatedEndpoint,
 )
 from .models import (
@@ -510,7 +512,7 @@ class Mapper(typing.Generic[Tm]):
     ) -> None:
         dest_mapper = ctx.query_mapper_by_serde(serde_side.destination)
         if serde is None:
-            builder.set(None)
+            builder.nullify()
             return
         assert not isinstance(serde, collections.abc.Sequence)
         if ctx.query_descriptor_by_type_name(serde.type) != dest_mapper.resource_descr:
@@ -633,13 +635,13 @@ class Mapper(typing.Generic[Tm]):
         for rf in self.resource_filters:
             serde = typing.cast(ResourceRepr, rf(site_ctx, serde))
 
-        builder = self.native_descr.new_updater(target)
+        updater = self.native_descr.new_updater(target)
         for am in self.attribute_mappings:
             if ctx.select_attribute(am):
                 if am.direction is Direction.TO_SERDE_ONLY:
                     continue
                 try:
-                    am.to_native(ctx, site_ctx, serde, builder)
+                    am.to_native(ctx, site_ctx, serde, updater)
                 except AttributeNotFoundError:
                     if skip_missing:
                         continue
@@ -654,7 +656,7 @@ class Mapper(typing.Generic[Tm]):
                 if isinstance(rm.native_side, NativeToOneRelationshipDescriptor):
                     self._build_native_to_one(
                         ctx,
-                        builder.to_one_relationship(rm.native_side),
+                        updater.to_one_relationship(rm.native_side),
                         typing.cast(typing.Optional[ResourceIdRepr], dest_repr.data),
                         typing.cast(NativeToOneRelationshipDescriptor, rm.native_side),
                         typing.cast(ResourceToOneRelationshipDescriptor, rm.serde_side),
@@ -662,7 +664,7 @@ class Mapper(typing.Generic[Tm]):
                 elif isinstance(rm.native_side, NativeToManyRelationshipDescriptor):
                     self._build_native_to_many(
                         ctx,
-                        builder.to_many_relationship(rm.native_side),
+                        updater.to_many_relationship(rm.native_side),
                         typing.cast(typing.Sequence[ResourceIdRepr], dest_repr.data),
                         typing.cast(NativeToManyRelationshipDescriptor, rm.native_side),
                         typing.cast(ResourceToManyRelationshipDescriptor, rm.serde_side),
@@ -671,9 +673,11 @@ class Mapper(typing.Generic[Tm]):
                     raise AssertionError("should never get here!")
 
         for nbf in self.native_builder_filters:
-            builder = nbf(site_ctx, serde, builder)
+            _updater = nbf(site_ctx, serde, updater)
+            assert isinstance(_updater, NativeUpdater)
+            updater = _updater
 
-        native = builder(mctx)
+        native = updater(mctx)
 
         for nf in self.native_filters:
             native = nf(site_ctx, serde, native)
@@ -702,19 +706,21 @@ class Mapper(typing.Generic[Tm]):
         for rf in self.resource_filters:
             serde = typing.cast(typing.Optional[ResourceIdRepr], rf(site_ctx, serde))
 
-        builder = self.native_descr.new_updater(target)
+        updater = self.native_descr.new_updater(target)
         self._build_native_to_one(
             ctx,
-            builder.to_one_relationship(rm.native_side),
+            updater.to_one_relationship(rm.native_side),
             serde,
             typing.cast(NativeToOneRelationshipDescriptor, rm.native_side),
             typing.cast(ResourceToOneRelationshipDescriptor, rm.serde_side),
         )
 
         for nbf in self.native_builder_filters:
-            builder = nbf(site_ctx, serde, builder)
+            _updater = nbf(site_ctx, serde, updater)
+            assert isinstance(_updater, NativeUpdater)
+            updater = _updater
 
-        native = builder(mctx)
+        native = updater(mctx)
 
         for nf in self.native_filters:
             native = nf(site_ctx, serde, native)
@@ -743,23 +749,213 @@ class Mapper(typing.Generic[Tm]):
         for rf in self.resource_filters:
             serde = typing.cast(typing.Sequence[ResourceIdRepr], rf(site_ctx, serde))
 
-        builder = self.native_descr.new_updater(target)
+        updater = self.native_descr.new_updater(target)
         self._build_native_to_many(
             ctx,
-            builder.to_many_relationship(rm.native_side),
+            updater.to_many_relationship(rm.native_side),
             serde,
             typing.cast(NativeToManyRelationshipDescriptor, rm.native_side),
             typing.cast(ResourceToManyRelationshipDescriptor, rm.serde_side),
         )
 
         for nbf in self.native_builder_filters:
-            builder = nbf(site_ctx, serde, builder)
+            _updater = nbf(site_ctx, serde, updater)
+            assert isinstance(_updater, NativeUpdater)
+            updater = _updater
 
-        native = builder(mctx)
+        native = updater(mctx)
 
         for nf in self.native_filters:
             native = nf(site_ctx, serde, native)
         return native
+
+    def add_to_one_rel_with_serde(
+        self,
+        ctx: ToNativeContext,
+        mctx: MutationContext,
+        target: Tm,
+        rm: RelationshipMapping,
+        serde: typing.Optional[ResourceIdRepr],
+    ) -> typing.Tuple[Tm, bool]:
+        site_ctx = SiteContext(
+            Operation.UPDATE_REL,
+            mapper=self,
+            to_native_ctx=ctx,
+            mctx=mctx,
+            serde=serde,
+            target=target,
+            rm=rm,
+        )
+
+        for rf in self.resource_filters:
+            serde = typing.cast(ResourceIdRepr, rf(site_ctx, serde))
+
+        updater = self.native_descr.new_updater(target)
+        manip = updater.to_one_relationship_manipulator(
+            typing.cast(NativeToOneRelationshipDescriptor, rm.native_side)
+        )
+        serde_side = typing.cast(ResourceToOneRelationshipDescriptor, rm.serde_side)
+        dest_mapper = ctx.query_mapper_by_serde(serde_side.destination)
+        p: Deferred[bool]
+        if serde is None:
+            p = manip.nullify()
+        else:
+            if ctx.query_descriptor_by_type_name(serde.type) != dest_mapper.resource_descr:
+                raise InvalidStructureError(
+                    f"resource type {serde.type} is not acceptable in relationship {serde_side.name}"
+                )
+            id_ = dest_mapper.get_native_identity_by_serde(ctx, serde)
+            p = manip.set(id_)
+
+        for nbf in self.native_builder_filters:
+            _updater = nbf(site_ctx, serde, updater)
+            assert isinstance(_updater, NativeUpdater)
+            updater = _updater
+
+        native = updater(mctx)
+
+        for nf in self.native_filters:
+            native = nf(site_ctx, serde, native)
+        return native, p()
+
+    def remove_to_one_rel_with_serde(
+        self,
+        ctx: ToNativeContext,
+        mctx: MutationContext,
+        target: Tm,
+        rm: RelationshipMapping,
+        serde: ResourceIdRepr,
+    ) -> typing.Tuple[Tm, bool]:
+        site_ctx = SiteContext(
+            Operation.UPDATE_REL,
+            mapper=self,
+            to_native_ctx=ctx,
+            mctx=mctx,
+            serde=serde,
+            target=target,
+            rm=rm,
+        )
+
+        for rf in self.resource_filters:
+            serde = typing.cast(ResourceIdRepr, rf(site_ctx, serde))
+
+        updater = self.native_descr.new_updater(target)
+        manip = updater.to_one_relationship_manipulator(
+            typing.cast(NativeToOneRelationshipDescriptor, rm.native_side)
+        )
+        serde_side = typing.cast(ResourceToOneRelationshipDescriptor, rm.serde_side)
+        dest_mapper = ctx.query_mapper_by_serde(serde_side.destination)
+        if ctx.query_descriptor_by_type_name(serde.type) != dest_mapper.resource_descr:
+            raise InvalidStructureError(
+                f"resource type {serde.type} is not acceptable in relationship {serde_side.name}"
+            )
+        id_ = dest_mapper.get_native_identity_by_serde(ctx, serde)
+        p = manip.unset(id_)
+
+        for nbf in self.native_builder_filters:
+            _updater = nbf(site_ctx, serde, updater)
+            assert isinstance(_updater, NativeUpdater)
+            updater = _updater
+
+        native = updater(mctx)
+
+        for nf in self.native_filters:
+            native = nf(site_ctx, serde, native)
+        return native, p()
+
+    def add_to_many_rel_with_serde(
+        self,
+        ctx: ToNativeContext,
+        mctx: MutationContext,
+        target: Tm,
+        rm: RelationshipMapping,
+        serde: typing.Sequence[ResourceIdRepr],
+    ) -> typing.Tuple[Tm, typing.Sequence[typing.Tuple[ResourceIdRepr, bool]]]:
+        site_ctx = SiteContext(
+            Operation.UPDATE_REL,
+            mapper=self,
+            to_native_ctx=ctx,
+            mctx=mctx,
+            serde=serde,
+            target=target,
+            rm=rm,
+        )
+
+        for rf in self.resource_filters:
+            serde = typing.cast(typing.Sequence[ResourceIdRepr], rf(site_ctx, serde))
+
+        updater = self.native_descr.new_updater(target)
+        manip = updater.to_many_relationship_manipulator(
+            typing.cast(NativeToManyRelationshipDescriptor, rm.native_side)
+        )
+        serde_side = typing.cast(ResourceToManyRelationshipDescriptor, rm.serde_side)
+        dest_mapper = ctx.query_mapper_by_serde(serde_side.destination)
+        ps: typing.List[typing.Tuple[ResourceIdRepr, Deferred[bool]]] = []
+        for dest_repr in serde:
+            if ctx.query_descriptor_by_type_name(dest_repr.type) != dest_mapper.resource_descr:
+                raise InvalidStructureError(
+                    f"resource type {dest_repr.type} is not acceptable in relationship {serde_side.name}"
+                )
+            id_ = dest_mapper.get_native_identity_by_serde(ctx, dest_repr)
+            ps.append((dest_repr, manip.add(id_)))
+
+        for nbf in self.native_builder_filters:
+            _updater = nbf(site_ctx, serde, updater)
+            assert isinstance(_updater, NativeUpdater)
+            updater = _updater
+
+        native = updater(mctx)
+
+        for nf in self.native_filters:
+            native = nf(site_ctx, serde, native)
+        return native, [(repr_, p()) for repr_, p in ps]
+
+    def remove_to_many_rel_with_serde(
+        self,
+        ctx: ToNativeContext,
+        mctx: MutationContext,
+        target: Tm,
+        rm: RelationshipMapping,
+        serde: typing.Sequence[ResourceIdRepr],
+    ) -> typing.Tuple[Tm, typing.Sequence[typing.Tuple[ResourceIdRepr, bool]]]:
+        site_ctx = SiteContext(
+            Operation.UPDATE_REL,
+            mapper=self,
+            to_native_ctx=ctx,
+            mctx=mctx,
+            serde=serde,
+            target=target,
+            rm=rm,
+        )
+
+        for rf in self.resource_filters:
+            serde = typing.cast(typing.Sequence[ResourceIdRepr], rf(site_ctx, serde))
+
+        updater = self.native_descr.new_updater(target)
+        manip = updater.to_many_relationship_manipulator(
+            typing.cast(NativeToManyRelationshipDescriptor, rm.native_side)
+        )
+        serde_side = typing.cast(ResourceToManyRelationshipDescriptor, rm.serde_side)
+        dest_mapper = ctx.query_mapper_by_serde(serde_side.destination)
+        ps: typing.List[typing.Tuple[ResourceIdRepr, Deferred[bool]]] = []
+        for dest_repr in serde:
+            if ctx.query_descriptor_by_type_name(dest_repr.type) != dest_mapper.resource_descr:
+                raise InvalidStructureError(
+                    f"resource type {dest_repr.type} is not acceptable in relationship {serde_side.name}"
+                )
+            id_ = dest_mapper.get_native_identity_by_serde(ctx, dest_repr)
+            ps.append((dest_repr, manip.remove(id_)))
+
+        for nbf in self.native_builder_filters:
+            _updater = nbf(site_ctx, serde, updater)
+            assert isinstance(_updater, NativeUpdater)
+            updater = _updater
+
+        native = updater(mctx)
+
+        for nf in self.native_filters:
+            native = nf(site_ctx, serde, native)
+        return native, [(repr_, p()) for repr_, p in ps]
 
     def get_native_identity_by_serde(
         self, ctx: ToNativeContext, serde: typing.Union[ResourceIdRepr, ResourceRepr]
@@ -1219,6 +1415,66 @@ class MapperContext:
         mapper = self.query_mapper_by_native_class(type(target))
         rm = mapper.get_relationship_mapping_by_serde_name(None, serde_rel_name)
         return mapper.update_to_many_rel_with_serde(
+            ctx=self.create_to_native_context(None), mctx=mctx, target=target, rm=rm, serde=serde
+        )
+
+    Tmar = typing.TypeVar("Tmar")
+
+    def add_to_one_rel_with_serde(
+        self,
+        mctx: MutationContext,
+        target: Tmar,
+        serde_rel_name: str,
+        serde: typing.Optional[ResourceIdRepr],
+    ) -> typing.Tuple[Tmar, bool]:
+        mapper = self.query_mapper_by_native_class(type(target))
+        rm = mapper.get_relationship_mapping_by_serde_name(None, serde_rel_name)
+        return mapper.add_to_one_rel_with_serde(
+            ctx=self.create_to_native_context(None), mctx=mctx, target=target, rm=rm, serde=serde
+        )
+
+    Tmrr = typing.TypeVar("Tmrr")
+
+    def remove_to_one_rel_with_serde(
+        self,
+        mctx: MutationContext,
+        target: Tmrr,
+        serde_rel_name: str,
+        serde: ResourceIdRepr,
+    ) -> typing.Tuple[Tmrr, bool]:
+        mapper = self.query_mapper_by_native_class(type(target))
+        rm = mapper.get_relationship_mapping_by_serde_name(None, serde_rel_name)
+        return mapper.remove_to_one_rel_with_serde(
+            ctx=self.create_to_native_context(None), mctx=mctx, target=target, rm=rm, serde=serde
+        )
+
+    Tmarm = typing.TypeVar("Tmarm")
+
+    def add_to_many_rel_with_serde(
+        self,
+        mctx: MutationContext,
+        target: Tmarm,
+        serde_rel_name: str,
+        serde: typing.Sequence[ResourceIdRepr],
+    ) -> typing.Tuple[Tmarm, typing.Sequence[typing.Tuple[ResourceIdRepr, bool]]]:
+        mapper = self.query_mapper_by_native_class(type(target))
+        rm = mapper.get_relationship_mapping_by_serde_name(None, serde_rel_name)
+        return mapper.add_to_many_rel_with_serde(
+            ctx=self.create_to_native_context(None), mctx=mctx, target=target, rm=rm, serde=serde
+        )
+
+    Tmrrm = typing.TypeVar("Tmrrm")
+
+    def remove_to_many_rel_with_serde(
+        self,
+        mctx: MutationContext,
+        target: Tmrrm,
+        serde_rel_name: str,
+        serde: typing.Sequence[ResourceIdRepr],
+    ) -> typing.Tuple[Tmarm, typing.Sequence[typing.Tuple[ResourceIdRepr, bool]]]:
+        mapper = self.query_mapper_by_native_class(type(target))
+        rm = mapper.get_relationship_mapping_by_serde_name(None, serde_rel_name)
+        return mapper.remove_to_many_rel_with_serde(
             ctx=self.create_to_native_context(None), mctx=mctx, target=target, rm=rm, serde=serde
         )
 

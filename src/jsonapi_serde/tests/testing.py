@@ -2,6 +2,7 @@ import dataclasses
 import typing
 
 from ..declarative import AttributeFlags, InfoExtractor
+from ..deferred import Deferred, Promise
 from ..exceptions import NativeAttributeNotFoundError, NativeRelationshipNotFoundError
 from ..interfaces import (
     Endpoint,
@@ -13,8 +14,11 @@ from ..interfaces import (
     NativeRelationshipDescriptor,
     NativeToManyRelationshipBuilder,
     NativeToManyRelationshipDescriptor,
+    NativeToManyRelationshipManipulator,
     NativeToOneRelationshipBuilder,
     NativeToOneRelationshipDescriptor,
+    NativeToOneRelationshipManipulator,
+    NativeUpdater,
     PaginatedEndpoint,
 )
 from ..utils import assert_not_none
@@ -80,7 +84,7 @@ class PlainNativeToOneRelationshipDescriptor(NativeToOneRelationshipDescriptor):
         self._name = name
 
 
-class PlainToOneRelationshipBuilder(NativeToOneRelationshipBuilder):
+class PlainNativeToOneRelationshipBuilder(NativeToOneRelationshipBuilder):
     descr: PlainNativeToOneRelationshipDescriptor
     _builder: typing.Optional["PlainBuilder"] = None
     _nullified: bool = False
@@ -126,7 +130,7 @@ class PlainNativeToManyRelationshipDescriptor(NativeToManyRelationshipDescriptor
         self._name = name
 
 
-class PlainToManyRelationshipBuilder(NativeToManyRelationshipBuilder):
+class PlainNativeToManyRelationshipBuilder(NativeToManyRelationshipBuilder):
     descr: PlainNativeToManyRelationshipDescriptor
     _ids: typing.List[typing.Any]
 
@@ -141,7 +145,7 @@ class PlainToManyRelationshipBuilder(NativeToManyRelationshipBuilder):
         self._ids = []
 
 
-class PlainBuilderBase(NativeBuilder):
+class PlainBuilderBase:
     descr: "PlainNativeDescriptor"
     attrs: typing.Dict[PlainNativeAttributeDescriptor, typing.Any]
     relationships: typing.Dict[
@@ -166,7 +170,7 @@ class PlainBuilderBase(NativeBuilder):
         self, rel_descr: NativeToOneRelationshipDescriptor
     ) -> NativeToOneRelationshipBuilder:
         assert isinstance(rel_descr, PlainNativeToOneRelationshipDescriptor)
-        builder = PlainToOneRelationshipBuilder(rel_descr)
+        builder = PlainNativeToOneRelationshipBuilder(rel_descr)
         self.relationships[rel_descr] = builder
         return builder
 
@@ -175,7 +179,7 @@ class PlainBuilderBase(NativeBuilder):
         rel_descr: NativeToManyRelationshipDescriptor,
     ) -> NativeToManyRelationshipBuilder:
         assert isinstance(rel_descr, PlainNativeToManyRelationshipDescriptor)
-        builder = PlainToManyRelationshipBuilder(rel_descr)
+        builder = PlainNativeToManyRelationshipBuilder(rel_descr)
         self.relationships[rel_descr] = builder
         return builder
 
@@ -186,7 +190,7 @@ class PlainBuilderBase(NativeBuilder):
         self.immutables = {}
 
 
-class PlainBuilder(PlainBuilderBase):
+class PlainBuilder(PlainBuilderBase, NativeBuilder):
     def __call__(self, ctx: MutationContext) -> typing.Any:
         assert isinstance(ctx, PlainMutationContext)
         attrs = {descr.name: v for descr, v in self.attrs.items() if descr.name is not None}
@@ -194,9 +198,12 @@ class PlainBuilder(PlainBuilderBase):
         for descr, rb in self.relationships.items():
             if descr.name is None:
                 continue
-            if isinstance(rb, PlainToOneRelationshipBuilder):
-                rels[descr.name] = ctx.query_by_identity(descr.destination, id=rb(ctx))
-            elif isinstance(rb, PlainToManyRelationshipBuilder):
+            if isinstance(rb, PlainNativeToOneRelationshipBuilder):
+                id_ = rb(ctx)
+                rels[descr.name] = (
+                    ctx.query_by_identity(descr.destination, id=id_) if id_ is not None else None
+                )
+            elif isinstance(rb, PlainNativeToManyRelationshipBuilder):
                 rels[descr.name] = [
                     ctx.query_by_identity(descr.destination, id_) for id_ in rb(ctx)
                 ]
@@ -206,8 +213,80 @@ class PlainBuilder(PlainBuilderBase):
         super().__init__(descr)
 
 
-class PlainUpdater(PlainBuilderBase):
+class PlainNativeToOneRelationshipManipulator(NativeToOneRelationshipManipulator):
+    descr: PlainNativeToOneRelationshipDescriptor
+    promise: typing.Optional[Promise[bool]] = None
+    unset_id: typing.Optional[typing.Any] = None
+    set_id: typing.Optional[typing.Any] = None
+
+    def nullify(self) -> Deferred[bool]:
+        assert self.promise is None
+        self.promise = Promise[bool]()
+        return self.promise
+
+    def unset(self, id: typing.Any) -> Deferred[bool]:
+        assert self.promise is None
+        self.unset_id = id
+        self.promise = Promise[bool]()
+        return self.promise
+
+    def set(self, id: typing.Any) -> Deferred[bool]:
+        assert self.promise is None
+        self.set_id = id
+        self.promise = Promise[bool]()
+        return self.promise
+
+    def __init__(self, descr: PlainNativeToOneRelationshipDescriptor):
+        self.descr = descr
+
+
+class PlainNativeToManyRelationshipManipulator(NativeToManyRelationshipManipulator):
+    descr: PlainNativeToManyRelationshipDescriptor
+    added: typing.List[typing.Tuple[typing.Any, Deferred[bool]]]
+    removed: typing.Dict[typing.Any, Deferred[bool]]
+
+    def add(self, id: typing.Any) -> Deferred[bool]:
+        p = Promise[bool]()
+        self.added.append((id, p))
+        return p
+
+    def remove(self, id: typing.Any) -> Deferred[bool]:
+        p = Promise[bool]()
+        self.removed[id] = p
+        return p
+
+    def __init__(self, descr: PlainNativeToManyRelationshipDescriptor):
+        self.descr = descr
+        self.added = []
+        self.removed = {}
+
+
+class PlainUpdater(PlainBuilderBase, NativeUpdater):
     obj: typing.Any
+    to_one_manipulators: typing.Dict[
+        PlainNativeToOneRelationshipDescriptor, PlainNativeToOneRelationshipManipulator
+    ]
+    to_many_manipulators: typing.Dict[
+        PlainNativeToManyRelationshipDescriptor, PlainNativeToManyRelationshipManipulator
+    ]
+
+    def to_one_relationship_manipulator(
+        self, descr: NativeToOneRelationshipDescriptor
+    ) -> NativeToOneRelationshipManipulator:
+        assert isinstance(descr, PlainNativeToOneRelationshipDescriptor)
+        assert descr not in self.to_one_manipulators
+        manip = PlainNativeToOneRelationshipManipulator(descr)
+        self.to_one_manipulators[descr] = manip
+        return manip
+
+    def to_many_relationship_manipulator(
+        self, descr: NativeToManyRelationshipDescriptor
+    ) -> NativeToManyRelationshipManipulator:
+        assert isinstance(descr, PlainNativeToManyRelationshipDescriptor)
+        assert descr not in self.to_many_manipulators
+        manip = PlainNativeToManyRelationshipManipulator(descr)
+        self.to_many_manipulators[descr] = manip
+        return manip
 
     def __call__(self, ctx: MutationContext) -> typing.Any:
         assert isinstance(ctx, PlainMutationContext)
@@ -218,20 +297,71 @@ class PlainUpdater(PlainBuilderBase):
                     mutator_descr.raise_immutable_attribute_error()
 
         for rel_descr, rb in self.relationships.items():
-            if isinstance(rb, PlainToOneRelationshipBuilder):
+            if isinstance(rb, PlainNativeToOneRelationshipBuilder):
+                id_ = rb(ctx)
                 rel_descr.replace_related(
-                    self.obj, ctx.query_by_identity(rel_descr.destination, id=rb(ctx))
+                    self.obj,
+                    (
+                        ctx.query_by_identity(rel_descr.destination, id=id_)
+                        if id_ is not None
+                        else None
+                    ),
                 )
-            elif isinstance(rb, PlainToManyRelationshipBuilder):
+            elif isinstance(rb, PlainNativeToManyRelationshipBuilder):
                 rel_descr.replace_related(
                     self.obj, (ctx.query_by_identity(rel_descr.destination, id_) for id_ in rb(ctx))
                 )
+        for to_one_manip in self.to_one_manipulators.values():
+            if to_one_manip.promise is not None:
+                if to_one_manip.unset_id is not None:
+                    old_obj = to_one_manip.descr.fetch_related(self.obj)
+                    old_id = (
+                        to_one_manip.descr.destination.get_identity(old_obj)
+                        if old_obj is not None
+                        else None
+                    )
+                    if old_id == to_one_manip.unset_id:
+                        to_one_manip.descr.replace_related(self.obj, None)
+                        to_one_manip.promise.set(True)
+                    else:
+                        to_one_manip.promise.set(False)
+                else:
+                    if to_one_manip.set_id is not None:
+                        new_rel = ctx.query_by_identity(
+                            to_one_manip.descr.destination, to_one_manip.set_id
+                        )
+                    else:
+                        new_rel = None
+                    to_one_manip.descr.replace_related(self.obj, new_rel)
+                    to_one_manip.promise.set(True)
+
+        for to_many_manip in self.to_many_manipulators.values():
+            rels = to_many_manip.descr.fetch_related(self.obj)
+            remainder = dict(to_many_manip.removed)
+            new_rels: typing.List[typing.Any] = []
+            for rel in rels:
+                id_ = to_many_manip.descr.destination.get_identity(rel)
+                p = remainder.pop(id_, None)
+                if p is not None:
+                    p.set(True)  # type: ignore
+                else:
+                    new_rels.append(rel)
+            for p in remainder.values():
+                p.set(False)  # type: ignore
+            for id_, p in to_many_manip.added:
+                rel = ctx.query_by_identity(to_many_manip.descr.destination, id_)
+                new_rels.append(rel)
+                p.set(True)  # type: ignore
+            to_many_manip.descr.replace_related(self.obj, new_rels)
+
         return self.obj
 
     def __init__(self, descr: "PlainNativeDescriptor", obj: typing.Any):
         super().__init__(descr)
         assert isinstance(obj, descr.class_)
         self.obj = obj
+        self.to_one_manipulators = {}
+        self.to_many_manipulators = {}
 
 
 class PlainNativeDescriptor(NativeDescriptor):
@@ -246,7 +376,7 @@ class PlainNativeDescriptor(NativeDescriptor):
     def new_builder(self) -> NativeBuilder:
         return PlainBuilder(self)
 
-    def new_updater(self, target: typing.Any) -> NativeBuilder:
+    def new_updater(self, target: typing.Any) -> NativeUpdater:
         return PlainUpdater(self, target)
 
     @property
