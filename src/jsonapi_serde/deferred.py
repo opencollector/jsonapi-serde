@@ -37,12 +37,11 @@ class Promise(Deferred[T]):
     _set_value: typing.Union[T, NeverType] = Never
 
     def _yield_value(self) -> T:
-        if isinstance(self._set_value, NeverType):
-            raise RuntimeError("value is not set")
-        return self._set_value
+        raise RuntimeError("value is not set")
 
     def set(self, value: T) -> None:
-        self._set_value = value
+        self._value = value
+        self._value_yielded = True
 
     def __init__(self):
         super().__init__(self._yield_value)
