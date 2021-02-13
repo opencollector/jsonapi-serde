@@ -70,9 +70,9 @@ from .models import (
     ResourceIdRepr,
     ResourceRepr,
     SingletonDocumentRepr,
+    SourceRepr,
     ToManyRelDocumentRepr,
     ToOneRelDocumentRepr,
-    SourceRepr,
 )
 from .types import JSONScalar, MutableJSONObject
 from .utils import JSONPointer
@@ -339,7 +339,13 @@ class ReprRenderer:
         return retval
 
     def __call__(
-        self, repr_: typing.Union[SingletonDocumentRepr, CollectionDocumentRepr]
+        self,
+        repr_: typing.Union[
+            SingletonDocumentRepr,
+            CollectionDocumentRepr,
+            ToOneRelDocumentRepr,
+            ToManyRelDocumentRepr,
+        ],
     ) -> MutableJSONObject:
         ctx = ReprRendererContext(None)
         if isinstance(repr_, SingletonDocumentRepr):
