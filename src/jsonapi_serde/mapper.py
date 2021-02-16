@@ -458,7 +458,13 @@ class RelationshipMapping:
 class SerdeBuilderContext(metaclass=abc.ABCMeta):
     @abc.abstractmethod
     def native_visited(
-        self, ctx: ToSerdeContext, mapper: "Mapper", dest_mapper: "Mapper", native: typing.Any
+        self,
+        ctx: ToSerdeContext,
+        native_side: NativeRelationshipDescriptor,
+        serde_side: ResourceRelationshipDescriptor,
+        mapper: "Mapper",
+        dest_mapper: "Mapper",
+        native: typing.Any,
     ):
         ...  # pragma: nocover
 
@@ -980,7 +986,7 @@ class Mapper(typing.Generic[Tm]):
             builder.links = LinksRepr(self_=ep.get_self())
         dest = native_side.fetch_related(native)
         if dest is not None:
-            rctx.native_visited(ctx, self, dest_mapper, dest)
+            rctx.native_visited(ctx, native_side, serde_side, self, dest_mapper, dest)
             dest_mapper.build_serde(ctx, rctx, builder.set(), dest)
 
     def _build_serde_to_many(
@@ -1004,7 +1010,7 @@ class Mapper(typing.Generic[Tm]):
             )
         dest = native_side.fetch_related(native)
         for n in dest:
-            rctx.native_visited(ctx, self, dest_mapper, n)
+            rctx.native_visited(ctx, native_side, serde_side, self, dest_mapper, n)
             dest_mapper.build_serde(ctx, rctx, builder.next(), n)
 
     def build_serde_to_one_relationship(
@@ -1178,7 +1184,18 @@ class EndpointResolver(metaclass=abc.ABCMeta):
         ...  # pragma: nocover
 
 
-IncludeFilter = typing.Callable[["MapperContext", ToSerdeContext, Mapper, Mapper, typing.Any], bool]
+IncludeFilter = typing.Callable[
+    [
+        "MapperContext",
+        ToSerdeContext,
+        NativeRelationshipDescriptor,
+        ResourceRelationshipDescriptor,
+        Mapper,
+        Mapper,
+        typing.Any,
+    ],
+    bool,
+]
 
 
 class MapperContext:
@@ -1288,13 +1305,19 @@ class MapperContext:
         visited: typing.Set
 
         def native_visited(
-            self, ctx: ToSerdeContext, mapper: Mapper, dest_mapper: Mapper, native: typing.Any
+            self,
+            ctx: ToSerdeContext,
+            native_side: NativeRelationshipDescriptor,
+            serde_side: ResourceRelationshipDescriptor,
+            mapper: Mapper,
+            dest_mapper: Mapper,
+            native: typing.Any,
         ):
             if native in self.visited:
                 return
             self.visited.add(native)
             if self.include_filter is not None and not self.include_filter(
-                self.outer_ctx, ctx, mapper, dest_mapper, native
+                self.outer_ctx, ctx, native_side, serde_side, mapper, dest_mapper, native
             ):
                 return
             builder = self.doc_builder.next_included()
