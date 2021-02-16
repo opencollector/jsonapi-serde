@@ -1178,6 +1178,9 @@ class EndpointResolver(metaclass=abc.ABCMeta):
         ...  # pragma: nocover
 
 
+IncludeFilter = typing.Callable[["MapperContext", ToSerdeContext, Mapper, Mapper, typing.Any], bool]
+
+
 class MapperContext:
     driver: Driver
     serde_type_resolver: SerdeTypeResolver
@@ -1279,7 +1282,9 @@ class MapperContext:
             self._select_relationship = select_relationship
 
     class _SerdeBuilderContext(SerdeBuilderContext):
+        outer_ctx: "MapperContext"
         doc_builder: DocumentBuilder
+        include_filter: typing.Optional[IncludeFilter]
         visited: typing.Set
 
         def native_visited(
@@ -1288,11 +1293,22 @@ class MapperContext:
             if native in self.visited:
                 return
             self.visited.add(native)
+            if self.include_filter is not None and not self.include_filter(
+                self.outer_ctx, ctx, mapper, dest_mapper, native
+            ):
+                return
             builder = self.doc_builder.next_included()
             dest_mapper.build_serde(ctx, self, builder, native)
 
-        def __init__(self, doc_builder: DocumentBuilder):
+        def __init__(
+            self,
+            outer_ctx: "MapperContext",
+            doc_builder: DocumentBuilder,
+            include_filter: typing.Optional[IncludeFilter],
+        ):
+            self.outer_ctx = outer_ctx
             self.doc_builder = doc_builder
+            self.include_filter = include_filter
             self.visited = set()
 
     def query_mapper_by_native(self, descr: NativeDescriptor) -> Mapper:
@@ -1497,13 +1513,14 @@ class MapperContext:
         native: Tss,
         select_attribute: typing.Optional[typing.Callable[[AttributeMapping], bool]] = None,
         select_relationship: typing.Optional[typing.Callable[[RelationshipMapping], bool]] = None,
+        include_filter: typing.Optional[IncludeFilter] = None,
     ) -> SingletonDocumentBuilder:
         builder = self._new_singleton_document_builder()
         mapper = self.query_mapper_by_native_class(type(native))
         ep = self.endpoint_resolver.resolve_singleton_endpoint(mapper)
         if ep is not None:
             builder.links = LinksRepr(self_=ep.get_self())
-        rctx = self._SerdeBuilderContext(builder)
+        rctx = self._SerdeBuilderContext(self, builder, include_filter)
         mapper.build_serde(
             ctx=self.create_to_serde_context(
                 select_attribute=select_attribute, select_relationship=select_relationship
@@ -1522,6 +1539,7 @@ class MapperContext:
         natives: typing.Iterable[Tsc],
         select_attribute: typing.Optional[typing.Callable[[AttributeMapping], bool]] = None,
         select_relationship: typing.Optional[typing.Callable[[RelationshipMapping], bool]] = None,
+        include_filter: typing.Optional[IncludeFilter] = None,
     ) -> CollectionDocumentBuilder:
         builder = self._new_collection_document_builder()
         mapper = self.query_mapper_by_native_class(native_)
@@ -1534,7 +1552,7 @@ class MapperContext:
                 first=ep.get_first(),
                 last=ep.get_last(),
             )
-        rctx = self._SerdeBuilderContext(builder)
+        rctx = self._SerdeBuilderContext(self, builder, include_filter)
         for native in natives:
             inner_builder = builder.next()
             mapper.build_serde(
@@ -1553,10 +1571,11 @@ class MapperContext:
         self,
         native: Trss,
         serde_rel_name: str,
+        include_filter: typing.Optional[IncludeFilter] = None,
     ) -> ToOneRelDocumentBuilder:
         builder = self._new_to_one_rel_document_builder()
         mapper = self.query_mapper_by_native_class(type(native))
-        rctx = self._SerdeBuilderContext(builder)
+        rctx = self._SerdeBuilderContext(self, builder, include_filter)
         rm = mapper.get_relationship_mapping_by_serde_name(None, serde_rel_name)
         mapper.build_serde_to_one_relationship(
             ctx=self.create_to_serde_context(),
@@ -1573,10 +1592,11 @@ class MapperContext:
         self,
         native: Trsc,
         serde_rel_name: str,
+        include_filter: typing.Optional[IncludeFilter] = None,
     ) -> ToManyRelDocumentBuilder:
         builder = self._new_to_many_rel_document_builder()
         mapper = self.query_mapper_by_native_class(type(native))
-        rctx = self._SerdeBuilderContext(builder)
+        rctx = self._SerdeBuilderContext(self, builder, include_filter)
         rm = mapper.get_relationship_mapping_by_serde_name(None, serde_rel_name)
         mapper.build_serde_to_many_relationship(
             ctx=self.create_to_serde_context(),
