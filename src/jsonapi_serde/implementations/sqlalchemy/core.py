@@ -368,7 +368,7 @@ class SQLAUpdater(SQLABuilderBase, NativeUpdater):
             if to_one_manip.promise is not None:
                 old_obj = to_one_manip.descr.fetch_related(self.target)
                 old_id = (
-                    to_one_manip.descr.destination.belonged_to.get_identity(old_obj)
+                    to_one_manip.descr.destination.get_identity(old_obj)
                     if old_obj is not None
                     else None
                 )
