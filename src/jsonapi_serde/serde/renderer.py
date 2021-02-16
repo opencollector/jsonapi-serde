@@ -207,6 +207,8 @@ class ReprRenderer:
     def _render_resource_link(
         self, ctx: ReprRendererContext, repr_: ResourceIdRepr
     ) -> MutableJSONObject:
+        if repr_.type is None and repr_.id is None:
+            return None
         retval: MutableJSONObject = {
             "type": repr_.type,
             "id": repr_.id,

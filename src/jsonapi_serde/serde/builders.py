@@ -2,6 +2,7 @@ import abc
 import typing
 from collections import OrderedDict
 
+from ..utils import assert_not_none
 from .models import (
     AttributeValue,
     CollectionDocumentRepr,
@@ -22,7 +23,7 @@ class ReprBuilder(metaclass=abc.ABCMeta):
     meta: typing.Dict[str, typing.Any]
 
     @abc.abstractmethod
-    def __call__(self) -> Repr:
+    def __call__(self) -> typing.Optional[Repr]:
         ...  # pragma: nocover
 
     def __init__(self, parent: typing.Optional["ReprBuilder"] = None):
@@ -53,14 +54,15 @@ class ResourceIdReprBuilder(NodeReprBuilder):
     def set_id(self, id: str):
         self.id = id
 
-    def __call__(self) -> ResourceIdRepr:
-        assert self.type is not None
-        assert self.id is not None
-        return ResourceIdRepr(
-            type=self.type,
-            id=self.id,
-            meta=self.meta,
-        )
+    def __call__(self) -> typing.Optional[ResourceIdRepr]:
+        if self.type is not None and self.id is not None:
+            return ResourceIdRepr(
+                type=self.type,
+                id=self.id,
+                meta=self.meta,
+            )
+        else:
+            return None
 
     def __init__(self, parent: typing.Optional[ReprBuilder] = None):
         super().__init__(parent)
@@ -76,7 +78,7 @@ class ToManyRelReprBuilder(LinkageReprBuilder):
 
     def __call__(self) -> LinkageRepr:
         return LinkageRepr(
-            data=tuple(b() for b in self.data),
+            data=tuple(assert_not_none(b()) for b in self.data),
             links=self.links,
             meta=self.meta,
         )
@@ -224,7 +226,7 @@ class ToManyRelDocumentBuilder(DocumentBuilder):
 
     def __call__(self) -> ToManyRelDocumentRepr:
         return ToManyRelDocumentRepr(
-            data=tuple(b() for b in self.data),
+            data=tuple(assert_not_none(b()) for b in self.data),
             errors=tuple(self.errors),
             jsonapi=self.jsonapi,
             links=self.links,
