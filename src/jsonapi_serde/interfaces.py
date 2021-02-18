@@ -413,9 +413,10 @@ class Endpoint(metaclass=abc.ABCMeta):
     """
 
     @abc.abstractmethod
-    def get_self(self) -> str:
+    def get_self(self) -> typing.Optional[str]:
         """
         Gets the value for ``self`` key of a JSONAPI's links object.
+        If the resource does not exist, returns None.
         """
         ...  # pragma: nocover
 

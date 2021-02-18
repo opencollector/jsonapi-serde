@@ -199,6 +199,8 @@ class ReprRenderer:
                 ]
             else:
                 retval["data"] = self._render_resource_link((ctx / "data") | repr_, repr_.data)
+        else:
+            retval["data"] = None
 
         if repr_.meta:
             retval["meta"] = repr_.meta

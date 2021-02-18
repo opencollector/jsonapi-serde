@@ -415,9 +415,9 @@ class PlainNativeDescriptor(NativeDescriptor):
 
 @dataclasses.dataclass
 class DummyEndpoint(Endpoint):
-    self_: str
+    self_: typing.Optional[str]
 
-    def get_self(self) -> str:
+    def get_self(self) -> typing.Optional[str]:
         return self.self_
 
 

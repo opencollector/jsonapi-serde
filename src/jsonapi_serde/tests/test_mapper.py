@@ -514,10 +514,15 @@ class TestMapper:
                 rel_descr: ResourceToOneRelationshipDescriptor,
                 native: typing.Any,
             ) -> Endpoint:
+                related = native_descr.fetch_related(native)
                 return DummyEndpoint(
                     self_=(
-                        f"/{mapper.resource_descr.name}/{native.id}/"
-                        f"@{rel_descr.destination.name}/{native_descr.fetch_related(native).id}"
+                        (
+                            f"/{mapper.resource_descr.name}/{native.id}/"
+                            f"@{rel_descr.destination.name}/{related.id}"
+                        )
+                        if related is not None
+                        else None
                     )
                 )
 
@@ -710,6 +715,28 @@ class TestMapper:
                 type="bar",
                 id="1",
             ),
+        )
+
+    def test_build_serde_to_one_relationship_none(self, target, dummy_to_serde_context):
+        builder = ToOneRelDocumentBuilder()
+        native = Foo(
+            a="1",
+            b=2,
+            c=3,
+            id="1",
+            bar=None,
+        )
+        dummy_serde_builder_context = mock.Mock()
+        target.build_serde_to_one_relationship(
+            dummy_to_serde_context(lambda _: True),
+            dummy_serde_builder_context,
+            builder,
+            native,
+            target.get_relationship_mapping_by_serde_name(None, "bar"),
+        )
+        assert builder() == ToOneRelDocumentRepr(
+            links=LinksRepr(),
+            data=None,
         )
 
     def test_build_serde_to_many_relationship(self, target, dummy_to_serde_context):
