@@ -55,13 +55,19 @@ from ...mapper import (
     AttributeMapping,
     Driver,
     EndpointResolver,
+    IncludeFilter,
     Mapper,
     MapperContext,
     RelationshipMapping,
     SerdeTypeResolver,
 )
-from ...serde.builders import CollectionDocumentBuilder, SingletonDocumentBuilder
-from ...serde.models import ResourceRepr
+from ...serde.builders import (
+    CollectionDocumentBuilder,
+    SingletonDocumentBuilder,
+    ToManyRelDocumentBuilder,
+    ToOneRelDocumentBuilder,
+)
+from ...serde.models import ResourceIdRepr, ResourceRepr
 from .core import SQLAContext, SQLADescriptor
 from .defaults import (
     DefaultDriverImpl,
@@ -183,6 +189,78 @@ class Declarative:
             mctx, target, serde, select_attribute, select_relationship
         )
 
+    Tmcr = typing.TypeVar("Tmcr")
+
+    def update_to_one_rel_with_serde(
+        self,
+        session: orm.Session,
+        target: Tmcr,
+        serde_rel_name: str,
+        serde: typing.Optional[ResourceIdRepr],
+    ) -> Tmcr:
+        mctx = DefaultMutationContextImpl(session)
+        return self.mapper_ctx.update_to_one_rel_with_serde(mctx, target, serde_rel_name, serde)
+
+    Tmcrm = typing.TypeVar("Tmcrm")
+
+    def update_to_many_rel_with_serde(
+        self,
+        session: orm.Session,
+        target: Tmcrm,
+        serde_rel_name: str,
+        serde: typing.Sequence[ResourceIdRepr],
+    ) -> Tmcrm:
+        mctx = DefaultMutationContextImpl(session)
+        return self.mapper_ctx.update_to_many_rel_with_serde(mctx, target, serde_rel_name, serde)
+
+    Tmar = typing.TypeVar("Tmar")
+
+    def add_to_one_rel_with_serde(
+        self,
+        session: orm.Session,
+        target: Tmar,
+        serde_rel_name: str,
+        serde: typing.Optional[ResourceIdRepr],
+    ) -> typing.Tuple[Tmar, bool]:
+        mctx = DefaultMutationContextImpl(session)
+        return self.mapper_ctx.add_to_one_rel_with_serde(mctx, target, serde_rel_name, serde)
+
+    Tmrr = typing.TypeVar("Tmrr")
+
+    def remove_to_one_rel_with_serde(
+        self,
+        session: orm.Session,
+        target: Tmrr,
+        serde_rel_name: str,
+        serde: ResourceIdRepr,
+    ) -> typing.Tuple[Tmrr, bool]:
+        mctx = DefaultMutationContextImpl(session)
+        return self.mapper_ctx.remove_to_one_rel_with_serde(mctx, target, serde_rel_name, serde)
+
+    Tmarm = typing.TypeVar("Tmarm")
+
+    def add_to_many_rel_with_serde(
+        self,
+        session: orm.Session,
+        target: Tmarm,
+        serde_rel_name: str,
+        serde: typing.Sequence[ResourceIdRepr],
+    ) -> typing.Tuple[Tmarm, typing.Sequence[typing.Tuple[ResourceIdRepr, bool]]]:
+        mctx = DefaultMutationContextImpl(session)
+        return self.mapper_ctx.add_to_many_rel_with_serde(mctx, target, serde_rel_name, serde)
+
+    Tmrrm = typing.TypeVar("Tmrrm")
+
+    def remove_to_many_rel_with_serde(
+        self,
+        session: orm.Session,
+        target: Tmrrm,
+        serde_rel_name: str,
+        serde: typing.Sequence[ResourceIdRepr],
+    ) -> typing.Tuple[Tmarm, typing.Sequence[typing.Tuple[ResourceIdRepr, bool]]]:
+        mctx = DefaultMutationContextImpl(session)
+        return self.mapper_ctx.remove_to_many_rel_with_serde(mctx, target, serde_rel_name, serde)
+
     Tss = typing.TypeVar("Tss")
 
     def build_serde_single(
@@ -190,6 +268,10 @@ class Declarative:
         native: Tss,
         select_attribute: typing.Optional[typing.Callable[[AttributeMapping], bool]] = None,
         select_relationship: typing.Optional[typing.Callable[[RelationshipMapping], bool]] = None,
+        traverse_relationship: typing.Optional[
+            typing.Callable[["MapperContext", Mapper, RelationshipMapping, typing.Any], bool]
+        ] = None,
+        include_filter: typing.Optional[IncludeFilter] = None,
     ) -> SingletonDocumentBuilder:
         """
         Render a resource from the native object.
@@ -199,7 +281,9 @@ class Declarative:
         :param callable select_relationship: An optional callable that determines if the given relationship is included.
         :return: A constructed builder object.
         """
-        return self.mapper_ctx.build_serde_single(native, select_attribute, select_relationship)
+        return self.mapper_ctx.build_serde_single(
+            native, select_attribute, select_relationship, traverse_relationship, include_filter
+        )
 
     Tsc = typing.TypeVar("Tsc")
 
@@ -209,6 +293,10 @@ class Declarative:
         natives: typing.Iterable[Tsc],
         select_attribute: typing.Optional[typing.Callable[[AttributeMapping], bool]] = None,
         select_relationship: typing.Optional[typing.Callable[[RelationshipMapping], bool]] = None,
+        traverse_relationship: typing.Optional[
+            typing.Callable[["MapperContext", Mapper, RelationshipMapping, typing.Any], bool]
+        ] = None,
+        include_filter: typing.Optional[IncludeFilter] = None,
     ) -> CollectionDocumentBuilder:
         """
         Render a collection of resources from the iterable of native objects.
@@ -221,7 +309,42 @@ class Declarative:
         """
 
         return self.mapper_ctx.build_serde_collection(
-            native_, natives, select_attribute, select_relationship
+            native_,
+            natives,
+            select_attribute,
+            select_relationship,
+            traverse_relationship,
+            include_filter,
+        )
+
+    Trss = typing.TypeVar("Trss")
+
+    def build_serde_rel_single(
+        self,
+        native: Trss,
+        serde_rel_name: str,
+        traverse_relationship: typing.Optional[
+            typing.Callable[[MapperContext, Mapper, RelationshipMapping, typing.Any], bool]
+        ] = None,
+        include_filter: typing.Optional[IncludeFilter] = None,
+    ) -> ToOneRelDocumentBuilder:
+        return self.mapper_ctx.build_serde_rel_single(
+            native, serde_rel_name, traverse_relationship, include_filter
+        )
+
+    Trsc = typing.TypeVar("Trsc")
+
+    def build_serde_rel_collection(
+        self,
+        native: Trsc,
+        serde_rel_name: str,
+        traverse_relationship: typing.Optional[
+            typing.Callable[["MapperContext", Mapper, RelationshipMapping, typing.Any], bool]
+        ] = None,
+        include_filter: typing.Optional[IncludeFilter] = None,
+    ) -> ToManyRelDocumentBuilder:
+        return self.mapper_ctx.build_serde_rel_collection(
+            native, serde_rel_name, traverse_relationship, include_filter
         )
 
     def configure(self, skip_configure_mappers=False) -> None:

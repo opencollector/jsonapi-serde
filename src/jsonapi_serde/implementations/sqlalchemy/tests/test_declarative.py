@@ -3,7 +3,7 @@ from sqlalchemy import orm  # type: ignore
 from sqlalchemy.ext.declarative import declarative_base  # type: ignore
 
 from ....mapper import ToOneAttributeMapping
-from ....serde.models import LinkageRepr, ResourceRepr
+from ....serde.models import LinkageRepr, ResourceRepr, ResourceIdRepr
 
 
 def test_it():
@@ -44,7 +44,7 @@ def test_it():
         __tablename__ = "bars"
         id = sa.Column(sa.Integer(), primary_key=True, nullable=False)
         e = sa.Column(sa.Integer(), nullable=False)
-        foo_id = sa.Column(sa.Integer(), sa.ForeignKey(Foo.id), nullable=False)
+        foo_id = sa.Column(sa.Integer(), sa.ForeignKey(Foo.id), nullable=True)
 
     decl.configure()
 
@@ -116,3 +116,23 @@ def test_it():
     assert isinstance(result2, Foo)
     assert result2.a is None
     assert result2.x == (2, 3, 4)
+
+    bar_1 = Bar(e=1)
+    bar_2 = Bar(e=2)
+    session.add(bar_1)
+    session.add(bar_2)
+    session.flush()
+    foo = Foo()
+    assert len(foo.bars) == 0
+    decl.add_to_many_rel_with_serde(
+        session=session,
+        target=foo,
+        serde_rel_name="bars",
+        serde=[
+            ResourceIdRepr(type="bars", id=str(bar_1.id)),
+            ResourceIdRepr(type="bars", id=str(bar_2.id)),
+        ],
+    )
+    assert len(foo.bars) == 2
+    assert bar_1.foo_id == foo.id
+    assert bar_2.foo_id == foo.id

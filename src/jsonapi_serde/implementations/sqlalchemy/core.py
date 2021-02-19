@@ -139,7 +139,7 @@ class SQLAToOneRelationshipDescriptor(
     def fetch_related(self, target: typing.Any) -> typing.Any:
         return self.property.class_attribute.__get__(target, None)
 
-    def replace_related(self, target: typing.Any, new: typing.Any) -> None:
+    def replace_related(self, ctx: MutationContext, target: typing.Any, new: typing.Any) -> None:
         self.property.class_attribute.__set__(target, new)
 
 
@@ -164,6 +164,7 @@ class SQLAToOneRelationshipBuilder(SQLARelationshipDescriptor, NativeToOneRelati
 
 
 class Manipulation(typing.Protocol):
+    descr: NativeRelationshipDescriptor
     added: typing.MutableSequence[typing.Tuple[typing.Any, Promise[bool]]]
     removed: typing.MutableMapping[typing.Any, Promise[bool]]
 
@@ -174,7 +175,8 @@ class SQLAToManyRelationshipDescriptor(
     def fetch_related(self, target: typing.Any) -> typing.Iterable[typing.Any]:
         return self.property.class_attribute.__get__(target, None)
 
-    def manipulate_related(self, target: typing.Any, manip: "Manipulation"):
+    def manipulate_related(self, ctx: MutationContext, target: typing.Any, manip: "Manipulation"):
+        assert isinstance(ctx, SQLAMutationContext)
         col = self.fetch_related(target)
         if len(manip.removed) > 0:
             new_rels: typing.List[typing.Any] = []
@@ -188,16 +190,20 @@ class SQLAToManyRelationshipDescriptor(
             for v in remainder.values():
                 v.set(False)
             for added, p in manip.added:
-                new_rels.append(added)
+                added_rel = ctx.query_by_identity(manip.descr.destination, added)
+                new_rels.append(added_rel)
                 p.set(True)
-            self.replace_related(target, new_rels)
+            self.replace_related(ctx, target, new_rels)
         else:
             assert hasattr(col, "append")
             for added, p in manip.added:
-                col.append(added)  # type: ignore
+                added_rel = ctx.query_by_identity(manip.descr.destination, added)
+                col.append(added_rel)  # type: ignore
                 p.set(True)
 
-    def replace_related(self, target: typing.Any, new: typing.Iterable[typing.Any]) -> None:
+    def replace_related(
+        self, ctx: MutationContext, target: typing.Any, new: typing.Iterable[typing.Any]
+    ) -> None:
         self.property.class_attribute.__get__(target, None)[:] = new
 
 
@@ -261,11 +267,13 @@ class SQLABuilderBase:
         for to_one_descr, to_one_builder in self.to_one_rels.items():
             id_ = to_one_builder(ctx)
             to_one_descr.replace_related(
+                ctx,
                 obj,
                 (ctx.query_by_identity(to_one_descr.destination, id_) if id_ is not None else None),
             )
         for to_many_descr, to_many_builder in self.to_many_rels.items():
             to_many_descr.replace_related(
+                ctx,
                 obj,
                 [
                     (
@@ -374,12 +382,13 @@ class SQLAUpdater(SQLABuilderBase, NativeUpdater):
                 )
                 if to_one_manip.unset_id is not None:
                     if old_id == to_one_manip.unset_id:
-                        to_one_manip.descr.replace_related(self.target, None)
+                        to_one_manip.descr.replace_related(ctx, self.target, None)
                         to_one_manip.promise.set(True)  # type: ignore
                     else:
                         to_one_manip.promise.set(False)  # type: ignore
                 else:
                     to_one_manip.descr.replace_related(
+                        ctx,
                         self.target,
                         (
                             ctx.query_by_identity(
@@ -391,7 +400,7 @@ class SQLAUpdater(SQLABuilderBase, NativeUpdater):
                     )
                     to_one_manip.promise.set(True)  # type: ignore
         for to_many_manip in self.to_many_manips.values():
-            to_many_manip.descr.manipulate_related(self.target, to_many_manip)
+            to_many_manip.descr.manipulate_related(ctx, self.target, to_many_manip)  # type: ignore
         return self.target
 
     def __init__(self, descr: "SQLADescriptor", target: typing.Any):
