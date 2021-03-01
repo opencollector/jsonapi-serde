@@ -91,6 +91,7 @@ class Attr:
     read_only: typing.Union[UnspecifiedType, bool] = UNSPECIFIED
     write_only: typing.Union[UnspecifiedType, bool] = UNSPECIFIED
     immutable: typing.Union[UnspecifiedType, bool] = UNSPECIFIED
+    allow_empty: typing.Union[UnspecifiedType, bool] = UNSPECIFIED
 
 
 AttributeMappingSerdeSide = typing.Union[str, Attr, Dict, Tuple]
@@ -117,7 +118,13 @@ AttributeMappingType = typing.Sequence[
         WriteOnly,
     ]
 ]
-RelationshipMappingType = typing.Sequence[typing.Tuple[str, str]]
+RelationshipMappingType = typing.Sequence[
+    typing.Union[
+        Bidi,
+        ReadOnly,
+        WriteOnly,
+    ]
+]
 
 
 @dataclasses.dataclass
@@ -172,6 +179,16 @@ class AttributeFlags(enum.IntFlag):
     IMMUTABLE = 16
 
 
+class RelationshipFlags(enum.IntFlag):
+    NONE = 0
+    ALLOW_NULL = 1
+    REQUIRED_ON_CREATION = 2
+    READ_ONLY = 4
+    WRITE_ONLY = 8
+    IMMUTABLE = 16
+    ALLOW_EMPTY = 32
+
+
 class InfoExtractor(metaclass=abc.ABCMeta):
     @abc.abstractmethod
     def extract_descriptor_name_for_serde(self, native_descr: NativeDescriptor) -> str:
@@ -197,6 +214,12 @@ class InfoExtractor(metaclass=abc.ABCMeta):
     def extract_relationship_name_for_serde(
         self, native_rel_descr: NativeRelationshipDescriptor
     ) -> str:
+        ...  # pragma: nocover
+
+    @abc.abstractmethod
+    def extract_relationship_flags_for_serde(
+        self, native_rel_descr: NativeRelationshipDescriptor
+    ) -> RelationshipFlags:
         ...  # pragma: nocover
 
 
@@ -379,7 +402,7 @@ class MapperBuilder:
 
             serde_side, native_side = pair
 
-            if isinstance(serde_side, (str, ResourceAttributeDescriptor)):
+            if isinstance(serde_side, (str, Attr)):
                 tpl: typing.Optional[Attr] = None
                 serde_side_name: typing.Optional[str] = None
 
@@ -601,22 +624,72 @@ class MapperBuilder:
             rel_descr.name: rel_descr for rel_descr in native_descr.relationships
         }
 
-        for serde_side, native_side in relationship_mappings_proto:
+        for pair in relationship_mappings_proto:
+            direction = Direction.BIDI
+
+            if isinstance(pair, ReadOnly):
+                direction = Direction.TO_SERDE_ONLY
+            elif isinstance(pair, WriteOnly):
+                direction = Direction.TO_NATIVE_ONLY
+
+            serde_side, native_side = pair
+
+            if not isinstance(serde_side, (str, Attr)):
+                raise TypeError(
+                    f"left hand side of a relationship mapping must be an instance of str or Attr, got {serde_side!r}"
+                )
+
+            if not isinstance(native_side, str):
+                raise TypeError(
+                    f"right hand side of a relationship mapping must be an instance of str, got {native_side!r}"
+                )
+
+            if isinstance(serde_side, str):
+                serde_side = Attr(
+                    name=serde_side,
+                    read_only=direction is Direction.TO_SERDE_ONLY,
+                    write_only=direction is Direction.TO_NATIVE_ONLY,
+                )
+
             resource_rel_descr: ResourceRelationshipDescriptor
             rel_mapping: RelationshipMapping
 
             native_rel_descr = native_rel_attr_descrs[native_side]
             dest_mapper = Deferred(lambda native_rel_descr: self.query_mapper_by_native(native_rel_descr.destination), native_rel_descr)  # type: ignore
             if isinstance(native_rel_descr, NativeToOneRelationshipDescriptor):
+                flag = self.info_extractor.extract_relationship_flags_for_serde(native_rel_descr)
+                assert not isinstance(serde_side.name, UnspecifiedType)
                 resource_rel_descr = ResourceToOneRelationshipDescriptor(
                     dest_mapper.resource_descr,
-                    serde_side,
+                    serde_side.name,
+                    required_on_creation=maybe_unspecified(
+                        serde_side.required_on_creation,
+                        bool(flag & RelationshipFlags.REQUIRED_ON_CREATION),
+                    ),
+                    read_only=maybe_unspecified(serde_side.read_only, False),
+                    write_only=maybe_unspecified(serde_side.write_only, False),
+                    immutable=maybe_unspecified(serde_side.immutable, False),
+                    allow_null=maybe_unspecified(
+                        serde_side.allow_null, bool(flag & RelationshipFlags.ALLOW_NULL)
+                    ),
                 )
                 rel_mapping = RelationshipMapping(resource_rel_descr, native_rel_descr)
             elif isinstance(native_rel_descr, NativeToManyRelationshipDescriptor):
+                flag = self.info_extractor.extract_relationship_flags_for_serde(native_rel_descr)
+                assert not isinstance(serde_side.name, UnspecifiedType)
                 resource_rel_descr = ResourceToManyRelationshipDescriptor(
                     dest_mapper.resource_descr,
-                    serde_side,
+                    serde_side.name,
+                    required_on_creation=maybe_unspecified(
+                        serde_side.required_on_creation,
+                        bool(flag & RelationshipFlags.REQUIRED_ON_CREATION),
+                    ),
+                    read_only=maybe_unspecified(serde_side.read_only, False),
+                    write_only=maybe_unspecified(serde_side.write_only, False),
+                    immutable=maybe_unspecified(serde_side.immutable, False),
+                    allow_empty=maybe_unspecified(
+                        serde_side.allow_empty, bool(flag & RelationshipFlags.ALLOW_NULL)
+                    ),
                 )
                 rel_mapping = RelationshipMapping(resource_rel_descr, native_rel_descr)
             else:

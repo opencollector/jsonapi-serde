@@ -1223,7 +1223,8 @@ class MapperContext:
             typing.Callable[["MapperContext", Mapper, RelationshipMapping, typing.Any], bool]
         ]
         _include_filter: typing.Optional[IncludeFilter] = None
-        _visited: typing.Set
+        _visited: typing.Set[typing.Any]
+        _traversed: typing.Set[typing.Any]
 
         def select_attribute(self, mapping: AttributeMapping) -> bool:
             if self._select_attribute is None:
@@ -1275,11 +1276,8 @@ class MapperContext:
             dest_mapper: Mapper,
             native: typing.Any,
         ) -> bool:
-            return self.mark_visited(native) and (
-                self._include_filter is None
-                or self._include_filter(
-                    self.outer_ctx, ctx, native_side, serde_side, mapper, dest_mapper, native
-                )
+            return self._include_filter is not None and self._include_filter(
+                self.outer_ctx, ctx, native_side, serde_side, mapper, dest_mapper, native
             )
 
         def native_visited(
@@ -1291,6 +1289,8 @@ class MapperContext:
             dest_mapper: Mapper,
             native: typing.Any,
         ):
+            if not self.mark_visited(native):
+                return
             if not self.should_include(ctx, native_side, serde_side, mapper, dest_mapper, native):
                 return
             builder = self.doc_builder.next_included()
@@ -1300,6 +1300,12 @@ class MapperContext:
             if native in self._visited:
                 return False
             self._visited.add(native)
+            return True
+
+        def mark_traversed(self, native: typing.Any) -> bool:
+            if native in self._traversed:
+                return False
+            self._traversed.add(native)
             return True
 
         def __init__(
@@ -1320,6 +1326,7 @@ class MapperContext:
             self.traverse_relationship = traverse_relationship
             self._include_filter = include_filter
             self._visited = set()
+            self._traversed = set()
 
     class _ToNativeContext(ToNativeContext):
         outer_ctx: "MapperContext"
@@ -1573,16 +1580,14 @@ class MapperContext:
         native: Tss,
     ) -> None:
         for rel in mapper.relationship_mappings:
-            if ctx.traverse_relationship is not None and ctx.traverse_relationship(
-                self, mapper, rel, native
-            ):
-                if isinstance(rel.native_side, NativeToOneRelationshipDescriptor):
-                    _native = rel.native_side.fetch_related(native)
-                    _mapper = self.query_mapper_by_native_class(rel.native_side.destination.class_)
-                    if not ctx.should_include(
-                        ctx, rel.native_side, rel.serde_side, mapper, _mapper, _native
-                    ):
-                        return
+            if isinstance(rel.native_side, NativeToOneRelationshipDescriptor):
+                _native = rel.native_side.fetch_related(native)
+                _mapper = self.query_mapper_by_native_class(rel.native_side.destination.class_)
+                if not ctx.mark_traversed(_native):
+                    return
+                if ctx.should_include(
+                    ctx, rel.native_side, rel.serde_side, mapper, _mapper, _native
+                ):
                     ep = self.endpoint_resolver.resolve_singleton_endpoint(mapper)
                     _builder = ctx.doc_builder.next_included()
                     if ep is not None:
@@ -1593,20 +1598,24 @@ class MapperContext:
                         builder=_builder,
                         native=_native,
                     )
+                if ctx.traverse_relationship is None or ctx.traverse_relationship(
+                    self, _mapper, rel, _native
+                ):
                     self._traverse_relationships(
                         ctx=ctx,
                         mapper=_mapper,
                         native=_native,
                     )
-                elif isinstance(rel.native_side, NativeToManyRelationshipDescriptor):
-                    _mapper = self.query_mapper_by_native_class(rel.native_side.destination.class_)
-                    ep = self.endpoint_resolver.resolve_singleton_endpoint(mapper)
-                    natives = rel.native_side.fetch_related(native)
-                    for _native in natives:
-                        if not ctx.should_include(
-                            ctx, rel.native_side, rel.serde_side, mapper, _mapper, _native
-                        ):
-                            continue
+            elif isinstance(rel.native_side, NativeToManyRelationshipDescriptor):
+                _mapper = self.query_mapper_by_native_class(rel.native_side.destination.class_)
+                ep = self.endpoint_resolver.resolve_singleton_endpoint(mapper)
+                natives = rel.native_side.fetch_related(native)
+                for _native in natives:
+                    if not ctx.mark_traversed(_native):
+                        continue
+                    if ctx.should_include(
+                        ctx, rel.native_side, rel.serde_side, mapper, _mapper, _native
+                    ):
                         _builder = ctx.doc_builder.next_included()
                         if ep is not None:
                             _builder.links = LinksRepr(self_=ep.get_self())
@@ -1616,6 +1625,9 @@ class MapperContext:
                             builder=_builder,
                             native=_native,
                         )
+                    if ctx.traverse_relationship is None or ctx.traverse_relationship(
+                        self, _mapper, rel, _native
+                    ):
                         self._traverse_relationships(
                             ctx=ctx,
                             mapper=_mapper,

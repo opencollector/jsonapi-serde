@@ -6,7 +6,7 @@ import typing
 import sqlalchemy as sa  # type: ignore
 from sqlalchemy import orm  # type: ignore
 
-from ...declarative import AttributeFlags, InfoExtractor
+from ...declarative import AttributeFlags, InfoExtractor, RelationshipFlags
 from ...exceptions import (
     InvalidIdentifierError,
     InvalidNativeObjectStateError,
@@ -175,6 +175,15 @@ class DefaultInfoExtractorImpl(InfoExtractor):
     ) -> str:
         assert isinstance(native_rel_descr, SQLARelationshipDescriptor)
         return native_rel_descr.property.key
+
+    def extract_relationship_flags_for_serde(
+        self, native_rel_descr: NativeRelationshipDescriptor
+    ) -> RelationshipFlags:
+        assert isinstance(native_rel_descr, SQLARelationshipDescriptor)
+        retval: RelationshipFlags = RelationshipFlags.NONE
+        if all(c.nullable for c in native_rel_descr.property.foreign_keys):
+            retval |= RelationshipFlags.ALLOW_NULL
+        return retval
 
 
 def default_extract_properties(mapper: orm.Mapper):

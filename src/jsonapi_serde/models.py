@@ -59,6 +59,10 @@ class ResourceAttributeDescriptor(ResourceMemberDescriptor):
 class ResourceRelationshipDescriptor(ResourceMemberDescriptor):
     _destination: typing.Union["ResourceDescriptor", Deferred["ResourceDescriptor"]]
     type: RelationshipType
+    required_on_creation: bool
+    read_only: bool
+    write_only: bool
+    immutable: bool
 
     @property
     def destination(self) -> "ResourceDescriptor":
@@ -80,18 +84,54 @@ class ResourceRelationshipDescriptor(ResourceMemberDescriptor):
         self,
         destination: typing.Union["ResourceDescriptor", Deferred["ResourceDescriptor"]],
         name: str,
+        required_on_creation: bool = False,
+        read_only: bool = False,
+        write_only: bool = False,
+        immutable: bool = False,
     ):
         super().__init__()
         self._destination = destination
         self.name = name
+        self.required_on_creation = required_on_creation
+        self.read_only = read_only
+        self.write_only = write_only
+        self.immutable = immutable
 
 
 class ResourceToOneRelationshipDescriptor(ResourceRelationshipDescriptor):
     type = RelationshipType.TO_ONE
+    allow_null: bool
+
+    def __init__(
+        self,
+        destination: typing.Union["ResourceDescriptor", Deferred["ResourceDescriptor"]],
+        name: str,
+        required_on_creation: bool = False,
+        read_only: bool = False,
+        write_only: bool = False,
+        immutable: bool = False,
+        allow_null: bool = False,
+    ):
+        super().__init__(destination, name, required_on_creation, read_only, write_only, immutable)
+        self.allow_null = allow_null
 
 
 class ResourceToManyRelationshipDescriptor(ResourceRelationshipDescriptor):
     type = RelationshipType.TO_MANY
+    allow_empty: bool
+
+    def __init__(
+        self,
+        destination: typing.Union["ResourceDescriptor", Deferred["ResourceDescriptor"]],
+        name: str,
+        required_on_creation: bool = False,
+        read_only: bool = False,
+        write_only: bool = False,
+        immutable: bool = False,
+        allow_empty: bool = True,
+    ):
+        super().__init__(destination, name, required_on_creation, read_only, write_only, immutable)
+        self.allow_empty = allow_empty
 
 
 class ResourceDescriptor:

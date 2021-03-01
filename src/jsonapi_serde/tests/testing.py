@@ -1,7 +1,7 @@
 import dataclasses
 import typing
 
-from ..declarative import AttributeFlags, InfoExtractor
+from ..declarative import AttributeFlags, InfoExtractor, RelationshipFlags
 from ..deferred import Deferred, Promise
 from ..exceptions import NativeAttributeNotFoundError, NativeRelationshipNotFoundError
 from ..interfaces import (
@@ -465,3 +465,8 @@ class PlainInfoExtractor(InfoExtractor):
         self, native_rel_descr: NativeRelationshipDescriptor
     ) -> str:
         return assert_not_none(native_rel_descr.name)
+
+    def extract_relationship_flags_for_serde(
+        self, native_rel_descr: NativeRelationshipDescriptor
+    ) -> RelationshipFlags:
+        return RelationshipFlags.NONE
