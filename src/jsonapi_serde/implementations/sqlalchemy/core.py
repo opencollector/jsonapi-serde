@@ -106,7 +106,9 @@ class SQLAAttributeDescriptor(NativeAttributeDescriptor, typing.Generic[Tprop]):
     def build_sql_expression(
         self, target_class: typing.Optional[typing.Type[typing.Any]] = None
     ) -> sa.sql.operators.Operators:
-        return self.property.class_attribute.__get__(None, self.belonged_to.class_)
+        return self.property.class_attribute.__get__(
+            None, target_class if target_class is not None else self.belonged_to.class_
+        )
 
     def __init__(self, belonged_to: "SQLADescriptor", property: Tprop):
         self.belonged_to = belonged_to

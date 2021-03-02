@@ -132,14 +132,14 @@ class DefaultBasicTypeConverterImpl(BasicTypeConverter):
             value, typing.get_args(JSONScalar)
         ):
             return self.jsonic_converter(typ, typing.cast(JSONScalar, value))
-        elif (
+        elif isinstance(value, typ) or (
             not issubclass(typ, str)
             and issubclass(typ, (collections.abc.Sequence, collections.abc.Mapping))
             and not isinstance(value, str)
             and isinstance(value, (collections.abc.Sequence, collections.abc.Mapping))
         ):
             return typing.cast(Tn, value)  # TODO
-        raise TypeError(f"unsupported conversion from {type(value)}")
+        raise TypeError(f"unsupported conversion from {type(value)} to {typ}")
 
     def __init__(self):
         self.jsonic_converter = PyTypedJsonicDataConverter()

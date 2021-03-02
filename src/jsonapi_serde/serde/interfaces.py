@@ -24,5 +24,5 @@ class ResourceRelationshipDescriptor(typing.Protocol):
 
 class ResourceDescriptor(typing.Protocol):
     name: str
-    attributes: typing.Sequence[ResourceAttributeDescriptor]
-    relationships: typing.Sequence[ResourceRelationshipDescriptor]
+    attributes: typing.Mapping[str, ResourceAttributeDescriptor]
+    relationships: typing.Mapping[str, ResourceRelationshipDescriptor]

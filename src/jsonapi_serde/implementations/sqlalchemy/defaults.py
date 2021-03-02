@@ -166,7 +166,7 @@ class DefaultInfoExtractorImpl(InfoExtractor):
             ):
                 if native_attr_descr.property.expression.nullable:
                     retval |= AttributeFlags.ALLOW_NULL
-                if native_attr_descr.property.expression.default is None:
+                elif native_attr_descr.property.expression.default is None:
                     retval |= AttributeFlags.REQUIRED_ON_CREATION
         return retval
 

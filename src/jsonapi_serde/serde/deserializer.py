@@ -97,7 +97,8 @@ class ReprDeserializer:
                     )
                     return (None, math.inf)
 
-                for attr_descr in resource_descr.attributes:
+                attr_names = set(attributes_.keys())
+                for attr_descr in resource_descr.attributes.values():
                     if attr_descr.name not in attributes_:
                         if (
                             not typing.cast(
@@ -120,6 +121,7 @@ class ReprDeserializer:
                             continue
                     else:
                         v = attributes_[attr_descr.name]
+                        attr_names.remove(attr_descr.name)
                     attributes.append(
                         (
                             attr_descr.name,
@@ -135,6 +137,15 @@ class ReprDeserializer:
                         break
                     else:
                         continue
+
+                if attr_names:
+                    for name in attr_names:
+                        ctx.validation_error_occurred(
+                            JsonicDataValidationError(
+                                pointer / name,
+                                f'unknown attribute "{name}"',
+                            )
+                        )
 
             relationships: typing.Sequence[typing.Tuple[str, LinkageRepr]] = ()
 
