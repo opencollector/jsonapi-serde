@@ -1598,8 +1598,9 @@ class MapperContext:
                         builder=_builder,
                         native=_native,
                     )
-                if ctx.traverse_relationship is None or ctx.traverse_relationship(
-                    self, _mapper, rel, _native
+                if _native is not None and (
+                    ctx.traverse_relationship is None
+                    or ctx.traverse_relationship(self, _mapper, rel, _native)
                 ):
                     self._traverse_relationships(
                         ctx=ctx,
@@ -1625,8 +1626,9 @@ class MapperContext:
                             builder=_builder,
                             native=_native,
                         )
-                    if ctx.traverse_relationship is None or ctx.traverse_relationship(
-                        self, _mapper, rel, _native
+                    if _native is not None and (
+                        ctx.traverse_relationship is None
+                        or ctx.traverse_relationship(self, _mapper, rel, _native)
                     ):
                         self._traverse_relationships(
                             ctx=ctx,
