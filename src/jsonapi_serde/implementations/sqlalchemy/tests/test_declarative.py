@@ -2,7 +2,7 @@ import sqlalchemy as sa  # type: ignore
 from sqlalchemy import orm  # type: ignore
 from sqlalchemy.ext.declarative import declarative_base  # type: ignore
 
-from ....mapper import ToOneAttributeMapping
+from ....mapper import RelationshipPart, ToOneAttributeMapping
 from ....serde.models import LinkageRepr, ResourceIdRepr, ResourceRepr
 
 
@@ -82,7 +82,7 @@ def test_it():
     session.add(result)
     session.flush()
 
-    builder = decl.build_serde_single(result)
+    builder = decl.build_serde_single(result, select_relationship=lambda _: RelationshipPart.ALL)
     result_repr = builder()
 
     assert result_repr.data == serde
@@ -191,7 +191,7 @@ def test_rel_attr():
     session.add(result)
     session.flush()
 
-    builder = decl.build_serde_single(result)
+    builder = decl.build_serde_single(result, select_relationship=lambda _: RelationshipPart.ALL)
     result_repr = builder()
 
     assert result_repr.data == serde

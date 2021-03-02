@@ -2,7 +2,7 @@ import abc
 import typing
 from collections import OrderedDict
 
-from ..utils import assert_not_none
+from ..utils import UNSPECIFIED, assert_not_none
 from .models import (
     AttributeValue,
     CollectionDocumentRepr,
@@ -70,15 +70,19 @@ class ResourceIdReprBuilder(NodeReprBuilder):
 
 class ToManyRelReprBuilder(LinkageReprBuilder):
     data: typing.List["ResourceIdReprBuilder"]
+    _done: bool = False
 
     def next(self) -> "ResourceIdReprBuilder":
         builder = ResourceIdReprBuilder()
         self.data.append(builder)
         return builder
 
+    def done(self) -> None:
+        self._done = True
+
     def __call__(self) -> LinkageRepr:
         return LinkageRepr(
-            data=tuple(assert_not_none(b()) for b in self.data),
+            data=(tuple(assert_not_none(b()) for b in self.data) if self._done else UNSPECIFIED),
             links=self.links,
             meta=self.meta,
         )
@@ -97,7 +101,7 @@ class ToOneRelReprBuilder(LinkageReprBuilder):
 
     def __call__(self) -> LinkageRepr:
         return LinkageRepr(
-            data=self.data() if self.data is not None else None,
+            data=self.data() if self.data is not None else UNSPECIFIED,
             links=self.links,
             meta=self.meta,
         )
@@ -177,13 +181,18 @@ class DocumentBuilder(NodeReprBuilder, metaclass=abc.ABCMeta):
 
 class CollectionDocumentBuilder(DocumentBuilder):
     data: typing.List["ResourceReprBuilder"]
+    _done: bool = False
 
     def next(self) -> "ResourceReprBuilder":
         builder = ResourceReprBuilder()
         self.data.append(builder)
         return builder
 
+    def done(self) -> None:
+        self._done = True
+
     def __call__(self) -> CollectionDocumentRepr:
+        assert self._done
         return CollectionDocumentRepr(
             data=tuple(b() for b in self.data),
             errors=tuple(self.errors),
@@ -218,13 +227,18 @@ class SingletonDocumentBuilder(DocumentBuilder):
 
 class ToManyRelDocumentBuilder(DocumentBuilder):
     data: typing.List["ResourceIdReprBuilder"]
+    _done: bool = False
 
     def next(self) -> "ResourceIdReprBuilder":
         builder = ResourceIdReprBuilder()
         self.data.append(builder)
         return builder
 
+    def done(self) -> None:
+        self._done = True
+
     def __call__(self) -> ToManyRelDocumentRepr:
+        assert self._done
         return ToManyRelDocumentRepr(
             data=tuple(assert_not_none(b()) for b in self.data),
             errors=tuple(self.errors),
@@ -246,8 +260,9 @@ class ToOneRelDocumentBuilder(DocumentBuilder):
         return builder
 
     def __call__(self) -> ToOneRelDocumentRepr:
+        assert self.data is not None
         return ToOneRelDocumentRepr(
-            data=self.data() if self.data is not None else None,
+            data=self.data(),
             errors=tuple(self.errors),
             jsonapi=self.jsonapi,
             links=self.links,

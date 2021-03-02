@@ -9,6 +9,7 @@ import decimal
 import typing
 from collections import OrderedDict
 
+from ..utils import UNSPECIFIED, UnspecifiedType
 from .utils import JSONPointer
 
 Source = typing.Union[JSONPointer, str]
@@ -122,12 +123,16 @@ class LinkageRepr(NodeRepr):
     :py:class:`LinkageRepr` represents a `Resource Linkage <https://jsonapi.org/format/#document-resource-object-linkage>`_
     """
 
-    data: typing.Union[None, ResourceIdRepr, typing.Sequence[ResourceIdRepr]] = None
+    data: typing.Union[
+        None, UnspecifiedType, ResourceIdRepr, typing.Sequence[ResourceIdRepr]
+    ] = UNSPECIFIED
 
     def __init__(
         self,
         *,
-        data: typing.Union[None, ResourceIdRepr, typing.Sequence[ResourceIdRepr]],
+        data: typing.Union[
+            None, UnspecifiedType, ResourceIdRepr, typing.Sequence[ResourceIdRepr]
+        ] = UNSPECIFIED,
         links: typing.Optional[LinksRepr] = None,
         meta: typing.Optional[typing.Dict[str, typing.Any]] = None,
         _source_: typing.Optional[Source] = None,

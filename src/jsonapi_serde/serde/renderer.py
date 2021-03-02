@@ -59,6 +59,7 @@ import decimal
 import typing
 from collections import OrderedDict
 
+from ..utils import UnspecifiedType
 from .models import (
     AttributeValue,
     CollectionDocumentRepr,
@@ -189,25 +190,26 @@ class ReprRenderer:
         retval: MutableJSONObject = {}
         if repr_.links is not None:
             retval["links"] = self._render_links((ctx / "links") | repr_, repr_.links)
-        if isinstance(repr_.data, ResourceRepr):
-            retval["data"] = self._render_resource_link((ctx / "data") | repr_, repr_.data)
-        elif repr_.data is not None:
-            if isinstance(repr_.data, collections.abc.Sequence):
-                retval["data"] = [
-                    self._render_resource_link((ctx / "data")[i] | repr_, item)
-                    for i, item in enumerate(repr_.data)
-                ]
-            else:
-                retval["data"] = self._render_resource_link((ctx / "data") | repr_, repr_.data)
-        else:
+        if repr_.data is None:
             retval["data"] = None
+        elif isinstance(repr_.data, UnspecifiedType):
+            pass
+        elif isinstance(repr_.data, collections.abc.Sequence):
+            retval["data"] = [
+                self._render_resource_link((ctx / "data")[i] | repr_, item)
+                for i, item in enumerate(repr_.data)
+            ]
+        elif isinstance(repr_.data, (ResourceRepr, ResourceIdRepr)):
+            retval["data"] = self._render_resource_link((ctx / "data") | repr_, repr_.data)
+        else:
+            raise AssertionError("should never get here")
 
         if repr_.meta:
             retval["meta"] = repr_.meta
         return retval
 
     def _render_resource_link(
-        self, ctx: ReprRendererContext, repr_: ResourceIdRepr
+        self, ctx: ReprRendererContext, repr_: typing.Union[ResourceIdRepr, ResourceRepr]
     ) -> MutableJSONObject:
         if repr_.type is None and repr_.id is None:
             return None

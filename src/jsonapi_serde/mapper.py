@@ -1040,6 +1040,7 @@ class Mapper(typing.Generic[Tm]):
             for n in dest:
                 rctx.native_visited(ctx, native_side, serde_side, self, dest_mapper, n)
                 dest_mapper.build_serde(ctx, rctx, builder.next(), n)
+            builder.done()
 
     def build_serde_to_one_relationship(
         self,
@@ -1752,6 +1753,7 @@ class MapperContext:
                 mapper=mapper,
                 native=native,
             )
+        builder.done()
         return builder
 
     Trss = typing.TypeVar("Trss")
@@ -1764,6 +1766,7 @@ class MapperContext:
             typing.Callable[["MapperContext", Mapper, RelationshipMapping, typing.Any], bool]
         ] = None,
         include_filter: typing.Optional[IncludeFilter] = None,
+        parts: RelationshipPart = RelationshipPart.ALL,
     ) -> ToOneRelDocumentBuilder:
         builder = self._new_to_one_rel_document_builder()
         mapper = self.query_mapper_by_native_class(type(native))
@@ -1779,6 +1782,7 @@ class MapperContext:
             builder=builder,
             native=native,
             rm=rm,
+            parts=parts,
         )
         assert builder.data is not None
         self._traverse_relationships(
@@ -1798,6 +1802,7 @@ class MapperContext:
             typing.Callable[["MapperContext", Mapper, RelationshipMapping, typing.Any], bool]
         ] = None,
         include_filter: typing.Optional[IncludeFilter] = None,
+        parts: RelationshipPart = RelationshipPart.ALL,
     ) -> ToManyRelDocumentBuilder:
         builder = self._new_to_many_rel_document_builder()
         mapper = self.query_mapper_by_native_class(type(native))
@@ -1813,6 +1818,7 @@ class MapperContext:
             builder=builder,
             native=native,
             rm=rm,
+            parts=parts,
         )
         self._traverse_relationships(
             ctx=ctx,

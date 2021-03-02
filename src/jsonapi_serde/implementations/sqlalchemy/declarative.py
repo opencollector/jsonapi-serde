@@ -59,6 +59,7 @@ from ...mapper import (
     Mapper,
     MapperContext,
     RelationshipMapping,
+    RelationshipPart,
     SerdeTypeResolver,
 )
 from ...serde.builders import (
@@ -267,7 +268,9 @@ class Declarative:
         self,
         native: Tss,
         select_attribute: typing.Optional[typing.Callable[[AttributeMapping], bool]] = None,
-        select_relationship: typing.Optional[typing.Callable[[RelationshipMapping], bool]] = None,
+        select_relationship: typing.Optional[
+            typing.Callable[[RelationshipMapping], RelationshipPart]
+        ] = None,
         traverse_relationship: typing.Optional[
             typing.Callable[["MapperContext", Mapper, RelationshipMapping, typing.Any], bool]
         ] = None,
@@ -292,7 +295,9 @@ class Declarative:
         native_: typing.Type[Tsc],
         natives: typing.Iterable[Tsc],
         select_attribute: typing.Optional[typing.Callable[[AttributeMapping], bool]] = None,
-        select_relationship: typing.Optional[typing.Callable[[RelationshipMapping], bool]] = None,
+        select_relationship: typing.Optional[
+            typing.Callable[[RelationshipMapping], RelationshipPart]
+        ] = None,
         traverse_relationship: typing.Optional[
             typing.Callable[["MapperContext", Mapper, RelationshipMapping, typing.Any], bool]
         ] = None,
