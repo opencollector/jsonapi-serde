@@ -159,7 +159,7 @@ class TestMapper:
                 ),
             ],
             relationships=[
-                ResourceToOneRelationshipDescriptor(bar_resource_descr, "bar"),
+                ResourceToOneRelationshipDescriptor(bar_resource_descr, "bar", allow_null=True),
                 ResourceToManyRelationshipDescriptor(baz_resource_descr, "bazs"),
             ],
         )
@@ -174,7 +174,7 @@ class TestMapper:
                 PlainNativeAttributeDescriptor("c", int, False),
             ],
             relationships=[
-                PlainNativeToOneRelationshipDescriptor(bar_native_descr, "bar"),
+                PlainNativeToOneRelationshipDescriptor(bar_native_descr, "bar", allow_null=True),
                 PlainNativeToManyRelationshipDescriptor(baz_native_descr, "bazs"),
             ],
         )
@@ -485,11 +485,12 @@ class TestMapper:
             AttributeMapping,
             Mapper,
             RelationshipMapping,
+            RelationshipPart,
             ToSerdeContext,
         )
 
         class SelectRelationship(typing.Protocol):
-            def __call__(self, mapping: RelationshipMapping) -> bool:
+            def __call__(self, mapping: RelationshipMapping) -> RelationshipPart:
                 ...  # pragma: nocover
 
         class DummyToSerdeContext(ToSerdeContext):
@@ -498,7 +499,7 @@ class TestMapper:
             def select_attribute(self, mapping: AttributeMapping):
                 return True
 
-            def select_relationship(self, mapping: RelationshipMapping):
+            def select_relationship(self, mapping: RelationshipMapping) -> RelationshipPart:
                 return self._select_relationship(mapping)
 
             def get_serde_identity_by_native(self, mapper: Mapper, native: typing.Any) -> str:
@@ -558,6 +559,8 @@ class TestMapper:
         return DummyToSerdeContext
 
     def test_build_serde(self, target, dummy_to_serde_context):
+        from ..mapper import RelationshipPart
+
         builder = ResourceReprBuilder()
         native = Foo(
             a="1",
@@ -576,7 +579,7 @@ class TestMapper:
         )
         dummy_serde_builder_context = mock.Mock()
         target.build_serde(
-            dummy_to_serde_context(lambda _: True), dummy_serde_builder_context, builder, native
+            dummy_to_serde_context(lambda _: RelationshipPart.ALL), dummy_serde_builder_context, builder, native
         )
         assert builder() == ResourceRepr(
             type="foo",
@@ -631,6 +634,8 @@ class TestMapper:
         baz_native_descr,
         dummy_to_serde_context,
     ):
+        from ..mapper import RelationshipPart
+
         builder = ResourceReprBuilder()
         native = Foo(
             a="1",
@@ -649,7 +654,7 @@ class TestMapper:
         )
         dummy_serde_builder_context = mock.Mock()
         target.build_serde(
-            dummy_to_serde_context(lambda mapping: mapping is target.relationship_mappings[1]),
+            dummy_to_serde_context(lambda mapping: (RelationshipPart.ALL if mapping is target.relationship_mappings[1] else RelationshipPart.NONE)),
             dummy_serde_builder_context,
             builder,
             native,
@@ -686,7 +691,43 @@ class TestMapper:
             ),
         )
 
-    def test_build_serde_to_one_relationship(self, target, dummy_to_serde_context):
+    @pytest.mark.parametrize(
+        ("expected", "parts"),
+        [
+            (
+                ToOneRelDocumentRepr(
+                    links=LinksRepr(
+                        self_="/foo/1/@bar/1",
+                    ),
+                ),
+                lambda RelationshipPart: RelationshipPart.LINKS,
+            ),
+            (
+                ToOneRelDocumentRepr(
+                    data=ResourceIdRepr(
+                        type="bar",
+                        id="1",
+                    ),
+                ),
+                lambda RelationshipPart: RelationshipPart.DATA,
+            ),
+            (
+                ToOneRelDocumentRepr(
+                    links=LinksRepr(
+                        self_="/foo/1/@bar/1",
+                    ),
+                    data=ResourceIdRepr(
+                        type="bar",
+                        id="1",
+                    ),
+                ),
+                lambda RelationshipPart: RelationshipPart.ALL,
+            ),
+        ]
+    )
+    def test_build_serde_to_one_relationship(self, target, dummy_to_serde_context, expected, parts):
+        from ..mapper import RelationshipPart
+
         builder = ToOneRelDocumentBuilder()
         native = Foo(
             a="1",
@@ -701,23 +742,37 @@ class TestMapper:
         )
         dummy_serde_builder_context = mock.Mock()
         target.build_serde_to_one_relationship(
-            dummy_to_serde_context(lambda _: True),
+            dummy_to_serde_context(lambda _: RelationshipPart.ALL),
             dummy_serde_builder_context,
             builder,
             native,
             target.get_relationship_mapping_by_serde_name(None, "bar"),
+            parts(RelationshipPart),
         )
-        assert builder() == ToOneRelDocumentRepr(
-            links=LinksRepr(
-                self_="/foo/1/@bar/1",
-            ),
-            data=ResourceIdRepr(
-                type="bar",
-                id="1",
-            ),
-        )
+        assert builder() == expected
 
-    def test_build_serde_to_one_relationship_none(self, target, dummy_to_serde_context):
+    @pytest.mark.parametrize(
+        ("expected", "parts"),
+        [
+            (
+                ToOneRelDocumentRepr(
+                    links=LinksRepr(),
+                    data=None,
+                ),
+                lambda RelationshipPart: RelationshipPart.LINKS,
+            ),
+            (
+                ToOneRelDocumentRepr(
+                    links=LinksRepr(),
+                    data=None,
+                ),
+                lambda RelationshipPart: RelationshipPart.ALL,
+            ),
+        ]
+    )
+    def test_build_serde_to_one_relationship_none(self, target, dummy_to_serde_context, expected, parts):
+        from ..mapper import RelationshipPart
+
         builder = ToOneRelDocumentBuilder()
         native = Foo(
             a="1",
@@ -728,18 +783,66 @@ class TestMapper:
         )
         dummy_serde_builder_context = mock.Mock()
         target.build_serde_to_one_relationship(
-            dummy_to_serde_context(lambda _: True),
+            dummy_to_serde_context(lambda _: RelationshipPart.ALL),
             dummy_serde_builder_context,
             builder,
             native,
             target.get_relationship_mapping_by_serde_name(None, "bar"),
+            parts(RelationshipPart),
         )
-        assert builder() == ToOneRelDocumentRepr(
-            links=LinksRepr(),
-            data=None,
-        )
+        assert builder() == expected
 
-    def test_build_serde_to_many_relationship(self, target, dummy_to_serde_context):
+    @pytest.mark.parametrize(
+        ("expected", "parts"),
+        [
+            (
+                ToManyRelDocumentRepr(
+                    links=LinksRepr(
+                        self_="/foo/1/@baz?page=0",
+                        next="/foo/1/@baz?page=1",
+                    ),
+                ),
+                lambda RelationshipPart: RelationshipPart.LINKS,
+            ),
+            (
+                ToManyRelDocumentRepr(
+                    data=(
+                        ResourceIdRepr(
+                            type="baz",
+                            id="1",
+                        ),
+                        ResourceIdRepr(
+                            type="baz",
+                            id="2",
+                        ),
+                    ),
+                ),
+                lambda RelationshipPart: RelationshipPart.DATA,
+            ),
+            (
+                ToManyRelDocumentRepr(
+                    links=LinksRepr(
+                        self_="/foo/1/@baz?page=0",
+                        next="/foo/1/@baz?page=1",
+                    ),
+                    data=(
+                        ResourceIdRepr(
+                            type="baz",
+                            id="1",
+                        ),
+                        ResourceIdRepr(
+                            type="baz",
+                            id="2",
+                        ),
+                    ),
+                ),
+                lambda RelationshipPart: RelationshipPart.ALL,
+            )
+        ]
+    )
+    def test_build_serde_to_many_relationship(self, target, dummy_to_serde_context, expected, parts):
+        from ..mapper import RelationshipPart
+
         builder = ToManyRelDocumentBuilder()
         native = Foo(
             a="1",
@@ -753,28 +856,14 @@ class TestMapper:
         )
         dummy_serde_builder_context = mock.Mock()
         target.build_serde_to_many_relationship(
-            dummy_to_serde_context(lambda _: True),
+            dummy_to_serde_context(lambda _: RelationshipPart.ALL),
             dummy_serde_builder_context,
             builder,
             native,
             target.get_relationship_mapping_by_serde_name(None, "bazs"),
+            parts(RelationshipPart),
         )
-        assert builder() == ToManyRelDocumentRepr(
-            links=LinksRepr(
-                self_="/foo/1/@baz?page=0",
-                next="/foo/1/@baz?page=1",
-            ),
-            data=(
-                ResourceIdRepr(
-                    type="baz",
-                    id="1",
-                ),
-                ResourceIdRepr(
-                    type="baz",
-                    id="2",
-                ),
-            ),
-        )
+        assert builder() == expected
 
     def test_update_to_one_rel_with_serde(self, target, bar_mapper, dummy_to_native_context):
         class DummyMutationContext(PlainMutationContext):

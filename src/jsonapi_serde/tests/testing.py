@@ -63,6 +63,7 @@ class PlainNativeAttributeDescriptor(NativeAttributeDescriptor):
 class PlainNativeToOneRelationshipDescriptor(NativeToOneRelationshipDescriptor):
     _destination: NativeDescriptor
     _name: str
+    _allow_null: bool
 
     @property
     def destination(self) -> NativeDescriptor:
@@ -72,6 +73,10 @@ class PlainNativeToOneRelationshipDescriptor(NativeToOneRelationshipDescriptor):
     def name(self) -> str:
         return self._name
 
+    @property
+    def allow_null(self) -> bool:
+        return self._allow_null
+
     def fetch_related(self, target: typing.Any) -> typing.Any:
         return getattr(target, self._name)
 
@@ -79,9 +84,10 @@ class PlainNativeToOneRelationshipDescriptor(NativeToOneRelationshipDescriptor):
         setattr(target, self._name, replace_by)
         return target
 
-    def __init__(self, destination: NativeDescriptor, name: str):
+    def __init__(self, destination: NativeDescriptor, name: str, allow_null):
         self._destination = destination
         self._name = name
+        self._allow_null = allow_null
 
 
 class PlainNativeToOneRelationshipBuilder(NativeToOneRelationshipBuilder):
@@ -469,4 +475,7 @@ class PlainInfoExtractor(InfoExtractor):
     def extract_relationship_flags_for_serde(
         self, native_rel_descr: NativeRelationshipDescriptor
     ) -> RelationshipFlags:
+        retval: RelationshipFlags = RelationshipFlags.NONE
+        if isinstance(native_rel_descr, PlainNativeToOneRelationshipDescriptor) and native_rel_descr.allow_null:
+            retval |= RelationshipFlags.ALLOW_NULL
         return RelationshipFlags.NONE

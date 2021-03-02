@@ -48,7 +48,7 @@ class TestDeclarative:
                 PlainNativeAttributeDescriptor("c", int, False),
             ],
             relationships=[
-                PlainNativeToOneRelationshipDescriptor(bar_native_descr, "bar"),
+                PlainNativeToOneRelationshipDescriptor(bar_native_descr, "bar", allow_null=True),
                 PlainNativeToManyRelationshipDescriptor(baz_native_descr, "bazs"),
             ],
         )

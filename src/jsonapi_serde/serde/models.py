@@ -397,8 +397,8 @@ class ToOneRelDocumentRepr(DocumentReprBase):
         :param Optional[ResourceIdRepr] data: a ResourceRepr object.
         :param Union[JSONPointer, str, None] _source_: an object that describes the source of the node.
         """
-        if data is Missing and errors is None and meta is None:
-            raise ValueError("either data, errors, or meta must be specified")
+        if data is Missing and errors is None and meta is None and links is None:
+            raise ValueError("either data, links, errors, or meta must be specified")
         super().__init__(
             jsonapi=jsonapi,
             errors=errors,
@@ -437,8 +437,8 @@ class ToManyRelDocumentRepr(DocumentReprBase):
         :param Optional[Sequence[ResourceRepr]] data: a ResourceRepr object.
         :param Union[JSONPointer, str, None] _source_: an object that describes the source of the node.
         """
-        if data is None and errors is None and meta is None:
-            raise ValueError("either data, errors, or meta must be specified")
+        if data is None and errors is None and meta is None and links is None:
+            raise ValueError("either data, links, errors, or meta must be specified")
         super().__init__(
             jsonapi=jsonapi,
             errors=errors,

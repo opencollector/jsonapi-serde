@@ -14,7 +14,7 @@ from ....interfaces import (
     NativeToOneRelationshipDescriptor,
     PaginatedEndpoint,
 )
-from ....mapper import AttributeMapping, Direction, Mapper, RelationshipMapping
+from ....mapper import AttributeMapping, Direction, Mapper, RelationshipMapping, RelationshipPart
 from ....mapper import ToNativeContext as _ToNativeContext
 from ....mapper import ToOneAttributeMapping
 from ....mapper import ToSerdeContext as _ToSerdeContext
@@ -42,8 +42,8 @@ class ToSerdeContextForTesting(_ToSerdeContext):
     def select_attribute(self, mapping: AttributeMapping) -> bool:
         return True
 
-    def select_relationship(self, mapping: RelationshipMapping) -> bool:
-        return True
+    def select_relationship(self, mapping: RelationshipMapping) -> RelationshipPart:
+        return RelationshipPart.ALL
 
     def get_serde_identity_by_native(self, mapper: Mapper, native: typing.Any) -> str:
         sa_mapper = orm.object_mapper(native)
