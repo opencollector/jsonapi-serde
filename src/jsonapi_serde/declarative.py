@@ -590,16 +590,27 @@ class MapperBuilder:
                 continue
             name = native_rel_descr.name
             dest_mapper = Deferred(lambda native_rel_descr: self.query_mapper_by_native(native_rel_descr.destination), native_rel_descr)  # type: ignore
+            flag = self.info_extractor.extract_relationship_flags_for_serde(native_rel_descr)
             if isinstance(native_rel_descr, NativeToOneRelationshipDescriptor):
                 resource_rel_descr = ResourceToOneRelationshipDescriptor(
                     dest_mapper.resource_descr,
                     name,
+                    required_on_creation=bool(flag & RelationshipFlags.REQUIRED_ON_CREATION),
+                    read_only=False,
+                    write_only=False,
+                    immutable=False,
+                    allow_null=bool(flag & RelationshipFlags.ALLOW_NULL),
                 )
                 rel_mapping = RelationshipMapping(resource_rel_descr, native_rel_descr)
             elif isinstance(native_rel_descr, NativeToManyRelationshipDescriptor):
                 resource_rel_descr = ResourceToManyRelationshipDescriptor(
                     dest_mapper.resource_descr,
                     name,
+                    required_on_creation=bool(flag & RelationshipFlags.REQUIRED_ON_CREATION),
+                    read_only=False,
+                    write_only=False,
+                    immutable=False,
+                    allow_empty=bool(flag & RelationshipFlags.ALLOW_EMPTY),
                 )
                 rel_mapping = RelationshipMapping(resource_rel_descr, native_rel_descr)
             else:

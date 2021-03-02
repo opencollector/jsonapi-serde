@@ -24,6 +24,7 @@ from .core import (
     SQLADescriptor,
     SQLAMutationContext,
     SQLARelationshipDescriptor,
+    SQLAToOneRelationshipDescriptor,
     is_alien_clause,
 )
 from .querying import identity_op
@@ -179,10 +180,15 @@ class DefaultInfoExtractorImpl(InfoExtractor):
     def extract_relationship_flags_for_serde(
         self, native_rel_descr: NativeRelationshipDescriptor
     ) -> RelationshipFlags:
-        assert isinstance(native_rel_descr, SQLARelationshipDescriptor)
         retval: RelationshipFlags = RelationshipFlags.NONE
-        if all(c.nullable for c in native_rel_descr.property.foreign_keys):
-            retval |= RelationshipFlags.ALLOW_NULL
+        if isinstance(native_rel_descr, SQLAToOneRelationshipDescriptor):
+            if all(local.nullable for local, _ in native_rel_descr.property.local_remote_pairs):
+                retval |= RelationshipFlags.ALLOW_NULL
+            if any(
+                not local.nullable and local.default is None
+                for local, _ in native_rel_descr.property.local_remote_pairs
+            ):
+                retval |= RelationshipFlags.REQUIRED_ON_CREATION
         return retval
 
 

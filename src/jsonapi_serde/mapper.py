@@ -7,6 +7,7 @@ import typing
 from .deferred import Deferred
 from .exceptions import (
     AttributeNotFoundError,
+    GenericConstraintError,
     ImmutableAttributeError,
     InvalidStructureError,
     RelationshipNotFoundError,
@@ -518,12 +519,16 @@ class Mapper(typing.Generic[Tm]):
     ) -> None:
         dest_mapper = ctx.query_mapper_by_serde(serde_side.destination)
         if serde is None:
+            if not serde_side.allow_null:
+                raise GenericConstraintError(
+                    f"relationship {serde_side.name} of resource type {serde_side.destination.name} must be specified"
+                )
             builder.nullify()
             return
         assert not isinstance(serde, collections.abc.Sequence)
         if ctx.query_descriptor_by_type_name(serde.type) != dest_mapper.resource_descr:
             raise InvalidStructureError(
-                f"resource type {serde.type} is not acceptable in relationship {serde_side.name}"
+                f"resource type {serde.type} is not acceptable in relationship {serde_side.name} (expecting {serde_side.destination.name})"
             )
         id_ = dest_mapper.get_native_identity_by_serde(ctx, serde)
         builder.set(id_)
@@ -603,6 +608,8 @@ class Mapper(typing.Generic[Tm]):
                 try:
                     dest_repr = rm.serde_side.extract_related(serde)
                 except RelationshipNotFoundError:
+                    if rm.serde_side.required_on_creation:
+                        raise
                     continue
                 if isinstance(rm.native_side, NativeToOneRelationshipDescriptor):
                     self._build_native_to_one(
