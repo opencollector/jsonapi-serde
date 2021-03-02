@@ -1223,7 +1223,7 @@ class MapperContext:
             typing.Callable[["MapperContext", Mapper, RelationshipMapping, typing.Any], bool]
         ]
         _include_filter: typing.Optional[IncludeFilter] = None
-        _visited: typing.Set[typing.Any]
+        _included: typing.Set[typing.Any]
         _traversed: typing.Set[typing.Any]
 
         def select_attribute(self, mapping: AttributeMapping) -> bool:
@@ -1289,17 +1289,17 @@ class MapperContext:
             dest_mapper: Mapper,
             native: typing.Any,
         ):
-            if not self.mark_visited(native):
+            if not self.mark_included(native):
                 return
             if not self.should_include(ctx, native_side, serde_side, mapper, dest_mapper, native):
                 return
             builder = self.doc_builder.next_included()
             dest_mapper.build_serde(ctx, self, builder, native)
 
-        def mark_visited(self, native: typing.Any) -> bool:
-            if native in self._visited:
+        def mark_included(self, native: typing.Any) -> bool:
+            if native in self._included:
                 return False
-            self._visited.add(native)
+            self._included.add(native)
             return True
 
         def mark_traversed(self, native: typing.Any) -> bool:
@@ -1325,7 +1325,7 @@ class MapperContext:
             self._select_relationship = select_relationship
             self.traverse_relationship = traverse_relationship
             self._include_filter = include_filter
-            self._visited = set()
+            self._included = set()
             self._traversed = set()
 
     class _ToNativeContext(ToNativeContext):
@@ -1585,7 +1585,7 @@ class MapperContext:
                 _mapper = self.query_mapper_by_native_class(rel.native_side.destination.class_)
                 if not ctx.mark_traversed(_native):
                     return
-                if ctx.should_include(
+                if ctx.mark_included(_native) and ctx.should_include(
                     ctx, rel.native_side, rel.serde_side, mapper, _mapper, _native
                 ):
                     ep = self.endpoint_resolver.resolve_singleton_endpoint(mapper)
@@ -1614,7 +1614,7 @@ class MapperContext:
                 for _native in natives:
                     if not ctx.mark_traversed(_native):
                         continue
-                    if ctx.should_include(
+                    if ctx.mark_included(_native) and ctx.should_include(
                         ctx, rel.native_side, rel.serde_side, mapper, _mapper, _native
                     ):
                         _builder = ctx.doc_builder.next_included()
