@@ -111,7 +111,7 @@ def detect_orphan(
                     and (a.history.added is None or all(o is None for o in a.history.added))
                     and (
                         a.history.deleted is not None
-                        and all(o is not None for o in a.history.deleted)
+                        and any(o is not None for o in a.history.deleted)
                     )
                 ):
                     raise GenericConstraintError(
