@@ -528,7 +528,7 @@ class Mapper(typing.Generic[Tm]):
         if serde is None:
             if not serde_side.allow_null:
                 raise GenericConstraintError(
-                    f"relationship {serde_side.name} of resource type {serde_side.destination.name} must be specified"
+                    f"relationship {serde_side.name} of resource type {self.resource_descr.name} must be specified"
                 )
             builder.nullify()
             return
