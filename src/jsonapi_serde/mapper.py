@@ -10,6 +10,7 @@ from .exceptions import (
     GenericConstraintError,
     ImmutableAttributeError,
     InvalidStructureError,
+    NativeRelationshipNotFoundError,
     RelationshipNotFoundError,
 )
 from .interfaces import (  # noqa: F401
@@ -495,6 +496,9 @@ class Mapper(typing.Generic[Tm]):
     _attribute_mappings: typing.Sequence[AttributeMapping[Tm]]
     _relationship_mappings: typing.Sequence[RelationshipMapping]
     _relationship_mappings_by_serde_name: typing.Mapping[str, RelationshipMapping]
+    _relationship_mappings_by_native_descr: typing.Mapping[
+        NativeRelationshipDescriptor, RelationshipMapping
+    ]
 
     @property
     def attribute_mappings(self) -> typing.Sequence[AttributeMapping[Tm]]:
@@ -515,6 +519,7 @@ class Mapper(typing.Generic[Tm]):
         self._relationship_mappings_by_serde_name = {
             assert_not_none(m.serde_side.name): m for m in mappings
         }
+        self._relationship_mappings_by_native_descr = {m.native_side: m for m in mappings}
 
     def _build_native_to_one(
         self,
@@ -584,6 +589,17 @@ class Mapper(typing.Generic[Tm]):
             return self._relationship_mappings_by_serde_name[name]
         except KeyError:
             raise RelationshipNotFoundError(resource=self.resource_descr, name=name, source=source)
+
+    def get_relationship_mapping_by_native_descriptor(
+        self, native_rel_descr: NativeRelationshipDescriptor
+    ) -> RelationshipMapping:
+        try:
+            return self._relationship_mappings_by_native_descr[native_rel_descr]
+        except KeyError:
+            raise NativeRelationshipNotFoundError(
+                descr=self.native_descr,
+                name=native_rel_descr.name or "?",
+            )
 
     def create_from_serde(
         self, ctx: ToNativeContext, mctx: MutationContext, serde: ResourceRepr

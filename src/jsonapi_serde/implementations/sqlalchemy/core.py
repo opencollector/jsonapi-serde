@@ -104,7 +104,8 @@ class SQLAAttributeDescriptor(NativeAttributeDescriptor, typing.Generic[Tprop]):
         return prev_value != value
 
     def build_sql_expression(
-        self, target_class: typing.Optional[typing.Type[typing.Any]] = None
+        self,
+        target_class: typing.Union[None, typing.Type[typing.Any], orm.util.AliasedClass] = None,
     ) -> sa.sql.operators.Operators:
         return self.property.class_attribute.__get__(
             None, target_class if target_class is not None else self.belonged_to.class_

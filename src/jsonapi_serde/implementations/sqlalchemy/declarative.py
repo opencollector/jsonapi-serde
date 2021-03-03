@@ -36,6 +36,7 @@ Synopsis
 """
 import typing
 
+import sqlalchemy as sa
 from sqlalchemy import orm  # type: ignore
 
 from ...declarative import (
@@ -51,6 +52,8 @@ from ...defaults import (
     DefaultEndpointResolverImpl,
     DefaultSerdeTypeResolverImpl,
 )
+from ...exceptions import GenericConstraintError, NativeRelationshipNotFoundError
+from ...interfaces import NativeToOneRelationshipDescriptor
 from ...mapper import (
     AttributeMapping,
     Driver,
@@ -62,6 +65,7 @@ from ...mapper import (
     RelationshipPart,
     SerdeTypeResolver,
 )
+from ...models import ResourceToOneRelationshipDescriptor
 from ...serde.builders import (
     CollectionDocumentBuilder,
     SingletonDocumentBuilder,
@@ -69,6 +73,7 @@ from ...serde.builders import (
     ToOneRelDocumentBuilder,
 )
 from ...serde.models import ResourceIdRepr, ResourceRepr
+from ...utils import assert_type
 from .core import SQLAContext, SQLADescriptor
 from .defaults import (
     DefaultDriverImpl,
@@ -77,6 +82,43 @@ from .defaults import (
     DefaultStringMarshallerImpl,
     default_extract_properties,
 )
+
+
+def detect_orphan(
+    sqla_ctx: SQLAContext,
+    mapper_ctx: MapperContext,
+    serde: typing.Union[None, ResourceIdRepr, ResourceRepr, typing.Sequence[ResourceIdRepr]],
+    session: orm.Session,
+):
+    for s in session.identity_map.all_states():
+        if not s.persistent:
+            continue
+
+        for a in s.attrs.values():
+            try:
+                native_descr = sqla_ctx.query_descriptor_by_mapper(s.mapper)
+                rel = native_descr.get_relationship_by_name(a.key)
+                if not isinstance(rel, NativeToOneRelationshipDescriptor):
+                    continue
+                js_mapper = mapper_ctx.query_mapper_by_native(native_descr)
+                rel_mapping = js_mapper.get_relationship_mapping_by_native_descriptor(rel)
+                if (
+                    not (
+                        assert_type(
+                            ResourceToOneRelationshipDescriptor, rel_mapping.serde_side
+                        ).allow_null
+                    )
+                    and (a.history.added is None or all(o is None for o in a.history.added))
+                    and (
+                        a.history.deleted is not None
+                        and all(o is not None for o in a.history.deleted)
+                    )
+                ):
+                    raise GenericConstraintError(
+                        f"relationship {rel_mapping.serde_side.name} of resource {js_mapper.resource_descr.name} cannot be null"
+                    )
+            except NativeRelationshipNotFoundError:
+                continue
 
 
 class Declarative:
@@ -174,6 +216,7 @@ class Declarative:
         serde: ResourceRepr,
         select_attribute: typing.Optional[typing.Callable[[AttributeMapping], bool]] = None,
         select_relationship: typing.Optional[typing.Callable[[RelationshipMapping], bool]] = None,
+        skip_missing: bool = False,
     ) -> Tmc:
         """
         Update the object with the given resource representation.
@@ -186,8 +229,13 @@ class Declarative:
         :return: The updated object
         """
         mctx = DefaultMutationContextImpl(session)
+
+        @sa.event.listens_for(session, "before_flush")
+        def _(session, ctx, instances):
+            detect_orphan(self._sqla_ctx, self.mapper_ctx, serde, session)
+
         return self.mapper_ctx.update_with_serde(
-            mctx, target, serde, select_attribute, select_relationship
+            mctx, target, serde, select_attribute, select_relationship, skip_missing
         )
 
     Tmcr = typing.TypeVar("Tmcr")
@@ -200,6 +248,11 @@ class Declarative:
         serde: typing.Optional[ResourceIdRepr],
     ) -> Tmcr:
         mctx = DefaultMutationContextImpl(session)
+
+        @sa.event.listens_for(session, "before_flush")
+        def _(session, ctx, instances):
+            detect_orphan(self._sqla_ctx, self.mapper_ctx, serde, session)
+
         return self.mapper_ctx.update_to_one_rel_with_serde(mctx, target, serde_rel_name, serde)
 
     Tmcrm = typing.TypeVar("Tmcrm")
@@ -212,6 +265,11 @@ class Declarative:
         serde: typing.Sequence[ResourceIdRepr],
     ) -> Tmcrm:
         mctx = DefaultMutationContextImpl(session)
+
+        @sa.event.listens_for(session, "before_flush")
+        def _(session, ctx, instances):
+            detect_orphan(self._sqla_ctx, self.mapper_ctx, serde, session)
+
         return self.mapper_ctx.update_to_many_rel_with_serde(mctx, target, serde_rel_name, serde)
 
     Tmar = typing.TypeVar("Tmar")
@@ -260,6 +318,11 @@ class Declarative:
         serde: typing.Sequence[ResourceIdRepr],
     ) -> typing.Tuple[Tmarm, typing.Sequence[typing.Tuple[ResourceIdRepr, bool]]]:
         mctx = DefaultMutationContextImpl(session)
+
+        @sa.event.listens_for(session, "before_flush")
+        def _(session, ctx, instances):
+            detect_orphan(self._sqla_ctx, self.mapper_ctx, serde, session)
+
         return self.mapper_ctx.remove_to_many_rel_with_serde(mctx, target, serde_rel_name, serde)
 
     Tss = typing.TypeVar("Tss")
