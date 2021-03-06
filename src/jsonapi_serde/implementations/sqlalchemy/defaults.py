@@ -1,6 +1,7 @@
 import abc
 import collections.abc
 import datetime
+import enum
 import typing
 
 import sqlalchemy as sa  # type: ignore
@@ -145,7 +146,11 @@ class DefaultInfoExtractorImpl(InfoExtractor):
             if not is_alien_clause(
                 native_attr_descr.property.parent, native_attr_descr.property.expression
             ):
-                return native_attr_descr.property.expression.type.python_type
+                typ = native_attr_descr.property.expression.type.python_type
+                if issubclass(typ, enum.Enum):
+                    return str
+                else:
+                    return typ
         elif isinstance(native_attr_descr.property, orm.CompositeProperty):
             class_ = native_attr_descr.property.composite_class
             if issubclass(
