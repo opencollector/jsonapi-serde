@@ -36,7 +36,7 @@ Synopsis
 """
 import typing
 
-import sqlalchemy as sa
+import sqlalchemy as sa  # type: ignore
 from sqlalchemy import orm  # type: ignore
 
 from ...declarative import (
