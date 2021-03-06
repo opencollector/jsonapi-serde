@@ -53,7 +53,7 @@ from ...defaults import (
     DefaultSerdeTypeResolverImpl,
 )
 from ...exceptions import GenericConstraintError, NativeRelationshipNotFoundError
-from ...interfaces import NativeToOneRelationshipDescriptor
+from ...interfaces import MutationContext, NativeToOneRelationshipDescriptor
 from ...mapper import (
     AttributeMapping,
     Driver,
@@ -121,6 +121,11 @@ def detect_orphan(
                 continue
 
 
+class MutationContextFactory(typing.Protocol):
+    def __call__(self, session: orm.Session, **kwargs: typing.Any) -> MutationContext:
+        ...  # pragma: nocover
+
+
 class Declarative:
     """
     The facade class that sits in front of MapperContext and native implementations.
@@ -135,6 +140,7 @@ class Declarative:
     _extract_properties_fn: typing.Optional[
         typing.Callable[[orm.Mapper], typing.Iterable[orm.interfaces.MapperProperty]]
     ]
+    _mutation_ctx_factory: MutationContextFactory = DefaultMutationContextImpl
 
     class _SQLAContext(SQLAContext):
         outer: "Declarative"
@@ -189,12 +195,18 @@ class Declarative:
         for c in self._instrumented_classes:
             self._configure_instrumented_class(orm.class_mapper(c))
 
+    def _create_mutation_context(
+        self, session: orm.Session, **kwargs: typing.Any
+    ) -> MutationContext:
+        return self._mutation_ctx_factory(session, **kwargs)
+
     def create_from_serde(
         self,
         session: orm.Session,
         serde: ResourceRepr,
         select_attribute: typing.Optional[typing.Callable[[AttributeMapping], bool]] = None,
         select_relationship: typing.Optional[typing.Callable[[RelationshipMapping], bool]] = None,
+        **kwargs: typing.Any,
     ) -> typing.Any:
         """
         Create a (native) object with the given resource representation.
@@ -204,7 +216,7 @@ class Declarative:
         :param callable select_relationship: An optional function that determines if the specified relationship is to be included.
         :return: An instance of SQLAlchemy-instrumented class that corresponds to the given resource representation.
         """
-        mctx = DefaultMutationContextImpl(session)
+        mctx = self._create_mutation_context(session, **kwargs)
         return self.mapper_ctx.create_from_serde(mctx, serde, select_attribute, select_relationship)
 
     Tmc = typing.TypeVar("Tmc")
@@ -217,6 +229,7 @@ class Declarative:
         select_attribute: typing.Optional[typing.Callable[[AttributeMapping], bool]] = None,
         select_relationship: typing.Optional[typing.Callable[[RelationshipMapping], bool]] = None,
         skip_missing: bool = False,
+        **kwargs: typing.Any,
     ) -> Tmc:
         """
         Update the object with the given resource representation.
@@ -228,7 +241,7 @@ class Declarative:
         :param callable select_relationship: An optional callable that determines if the given relationship is included.
         :return: The updated object
         """
-        mctx = DefaultMutationContextImpl(session)
+        mctx = self._create_mutation_context(session, **kwargs)
 
         @sa.event.listens_for(session, "before_flush")
         def _(session, ctx, instances):
@@ -246,8 +259,9 @@ class Declarative:
         target: Tmcr,
         serde_rel_name: str,
         serde: typing.Optional[ResourceIdRepr],
+        **kwargs: typing.Any,
     ) -> Tmcr:
-        mctx = DefaultMutationContextImpl(session)
+        mctx = self._create_mutation_context(session, **kwargs)
 
         @sa.event.listens_for(session, "before_flush")
         def _(session, ctx, instances):
@@ -263,8 +277,9 @@ class Declarative:
         target: Tmcrm,
         serde_rel_name: str,
         serde: typing.Sequence[ResourceIdRepr],
+        **kwargs: typing.Any,
     ) -> Tmcrm:
-        mctx = DefaultMutationContextImpl(session)
+        mctx = self._create_mutation_context(session, **kwargs)
 
         @sa.event.listens_for(session, "before_flush")
         def _(session, ctx, instances):
@@ -280,8 +295,9 @@ class Declarative:
         target: Tmar,
         serde_rel_name: str,
         serde: typing.Optional[ResourceIdRepr],
+        **kwargs: typing.Any,
     ) -> typing.Tuple[Tmar, bool]:
-        mctx = DefaultMutationContextImpl(session)
+        mctx = self._create_mutation_context(session, **kwargs)
         return self.mapper_ctx.add_to_one_rel_with_serde(mctx, target, serde_rel_name, serde)
 
     Tmrr = typing.TypeVar("Tmrr")
@@ -292,8 +308,9 @@ class Declarative:
         target: Tmrr,
         serde_rel_name: str,
         serde: ResourceIdRepr,
+        **kwargs: typing.Any,
     ) -> typing.Tuple[Tmrr, bool]:
-        mctx = DefaultMutationContextImpl(session)
+        mctx = self._create_mutation_context(session, **kwargs)
         return self.mapper_ctx.remove_to_one_rel_with_serde(mctx, target, serde_rel_name, serde)
 
     Tmarm = typing.TypeVar("Tmarm")
@@ -304,8 +321,9 @@ class Declarative:
         target: Tmarm,
         serde_rel_name: str,
         serde: typing.Sequence[ResourceIdRepr],
+        **kwargs: typing.Any,
     ) -> typing.Tuple[Tmarm, typing.Sequence[typing.Tuple[ResourceIdRepr, bool]]]:
-        mctx = DefaultMutationContextImpl(session)
+        mctx = self._create_mutation_context(session, **kwargs)
         return self.mapper_ctx.add_to_many_rel_with_serde(mctx, target, serde_rel_name, serde)
 
     Tmrrm = typing.TypeVar("Tmrrm")
@@ -316,8 +334,9 @@ class Declarative:
         target: Tmrrm,
         serde_rel_name: str,
         serde: typing.Sequence[ResourceIdRepr],
+        **kwargs: typing.Any,
     ) -> typing.Tuple[Tmarm, typing.Sequence[typing.Tuple[ResourceIdRepr, bool]]]:
-        mctx = DefaultMutationContextImpl(session)
+        mctx = self._create_mutation_context(session, **kwargs)
 
         @sa.event.listens_for(session, "before_flush")
         def _(session, ctx, instances):
@@ -436,6 +455,7 @@ class Declarative:
         extract_properties_fn: typing.Optional[
             typing.Callable[[orm.Mapper], typing.Iterable[orm.interfaces.MapperProperty]]
         ] = None,
+        mutation_ctx_factory: typing.Optional[MutationContextFactory] = None,
     ):
         self._sa_mapper_to_mapper_map = {}
         self._instrumented_classes = []
@@ -448,6 +468,7 @@ class Declarative:
         self.converter_factory = converter_factory
         self._sqla_ctx = self._SQLAContext(self)
         self._extract_properties_fn = extract_properties_fn
+        self._mutation_ctx_factory = mutation_ctx_factory or DefaultMutationContextImpl
 
 
 default_marshaller = DefaultStringMarshallerImpl()
@@ -462,6 +483,7 @@ def declarative_with_defaults(
     extract_properties_fn: typing.Optional[
         typing.Callable[[orm.Mapper], typing.Iterable[orm.interfaces.MapperProperty]]
     ] = default_extract_properties,
+    mutation_ctx_factory: MutationContextFactory = DefaultMutationContextImpl,
 ) -> Declarative:
     return Declarative(
         driver=(driver or DefaultDriverImpl(default_marshaller)),
@@ -472,4 +494,5 @@ def declarative_with_defaults(
             converter_factory or DefaultConverterFactoryImpl(DefaultBasicTypeConverterImpl())
         ),
         extract_properties_fn=extract_properties_fn,
+        mutation_ctx_factory=mutation_ctx_factory,
     )
