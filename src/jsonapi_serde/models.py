@@ -2,7 +2,6 @@ import typing
 from collections import OrderedDict
 
 from .deferred import Deferred
-from .exceptions import AttributeNotFoundError, RelationshipNotFoundError
 from .serde.interfaces import RelationshipType
 from .serde.models import AttributeValue, LinkageRepr, ResourceRepr, Source
 from .utils import assert_not_none
@@ -30,6 +29,8 @@ class ResourceAttributeDescriptor(ResourceMemberDescriptor):
     def extract_value(
         self, repr_: ResourceRepr, source: typing.Optional[Source] = None
     ) -> AttributeValue:
+        from .exceptions import AttributeNotFoundError
+
         assert self.name is not None
         try:
             return repr_.attributes[self.name]
@@ -74,6 +75,8 @@ class ResourceRelationshipDescriptor(ResourceMemberDescriptor):
     def extract_related(
         self, repr_: ResourceRepr, source: typing.Optional[Source] = None
     ) -> LinkageRepr:
+        from .exceptions import RelationshipNotFoundError
+
         try:
             return repr_.relationships[assert_not_none(self.name)]
         except KeyError:

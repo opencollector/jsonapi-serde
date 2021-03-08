@@ -476,6 +476,9 @@ class PlainInfoExtractor(InfoExtractor):
         self, native_rel_descr: NativeRelationshipDescriptor
     ) -> RelationshipFlags:
         retval: RelationshipFlags = RelationshipFlags.NONE
-        if isinstance(native_rel_descr, PlainNativeToOneRelationshipDescriptor) and native_rel_descr.allow_null:
+        if (
+            isinstance(native_rel_descr, PlainNativeToOneRelationshipDescriptor)
+            and native_rel_descr.allow_null
+        ):
             retval |= RelationshipFlags.ALLOW_NULL
         return RelationshipFlags.NONE

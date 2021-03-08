@@ -11,7 +11,13 @@ from ....interfaces import (
     NativeToOneRelationshipDescriptor,
     PaginatedEndpoint,
 )
-from ....mapper import AttributeMapping, Direction, Mapper, RelationshipMapping, RelationshipPart
+from ....mapper import (
+    AttributeMapping,
+    Direction,
+    Mapper,
+    RelationshipMapping,
+    RelationshipPart,
+)
 from ....mapper import ToNativeContext as _ToNativeContext
 from ....mapper import ToOneAttributeMapping
 from ....mapper import ToSerdeContext as _ToSerdeContext

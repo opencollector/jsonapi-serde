@@ -128,7 +128,14 @@ class ReprDeserializer:
                             typing.cast(
                                 AttributeValue,
                                 converter._convert(
-                                    ctx, _pointer / attr_descr.name, attr_descr.type, v
+                                    ctx,
+                                    _pointer / attr_descr.name,
+                                    (
+                                        typing.Optional[attr_descr.type]
+                                        if attr_descr.allow_null
+                                        else attr_descr.type
+                                    ),
+                                    v,
                                 )[0],
                             ),
                         )

@@ -117,11 +117,11 @@ def test_singleton(target_class):
 
 def test_collection(target_class):
     from ..models import (
+        CollectionDocumentRepr,
         LinkageRepr,
         LinksRepr,
         ResourceIdRepr,
         ResourceRepr,
-        CollectionDocumentRepr,
     )
 
     target = target_class()
@@ -305,11 +305,7 @@ def test_collection(target_class):
 
 
 def test_to_one_rel(target_class):
-    from ..models import (
-        LinksRepr,
-        ResourceIdRepr,
-        ToOneRelDocumentRepr,
-    )
+    from ..models import LinksRepr, ResourceIdRepr, ToOneRelDocumentRepr
 
     target = target_class()
 
@@ -336,11 +332,7 @@ def test_to_one_rel(target_class):
 
 
 def test_to_many_rel(target_class):
-    from ..models import (
-        LinksRepr,
-        ResourceIdRepr,
-        ToManyRelDocumentRepr,
-    )
+    from ..models import LinksRepr, ResourceIdRepr, ToManyRelDocumentRepr
 
     target = target_class()
 
