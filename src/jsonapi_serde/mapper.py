@@ -1632,6 +1632,8 @@ class MapperContext:
         for rel in mapper.relationship_mappings:
             if isinstance(rel.native_side, NativeToOneRelationshipDescriptor):
                 _native = rel.native_side.fetch_related(native)
+                if _native is None:
+                    continue
                 _mapper = self.query_mapper_by_native_class(rel.native_side.destination.class_)
                 if not ctx.mark_traversed(_native):
                     return
@@ -1648,9 +1650,8 @@ class MapperContext:
                         builder=_builder,
                         native=_native,
                     )
-                if _native is not None and (
-                    ctx.traverse_relationship is None
-                    or ctx.traverse_relationship(self, _mapper, rel, _native)
+                if ctx.traverse_relationship is None or ctx.traverse_relationship(
+                    self, _mapper, rel, _native
                 ):
                     self._traverse_relationships(
                         ctx=ctx,
@@ -1662,6 +1663,8 @@ class MapperContext:
                 ep = self.endpoint_resolver.resolve_singleton_endpoint(mapper)
                 natives = rel.native_side.fetch_related(native)
                 for _native in natives:
+                    if _native is None:
+                        continue
                     if not ctx.mark_traversed(_native):
                         continue
                     if ctx.mark_included(_native) and ctx.should_include(
@@ -1676,9 +1679,8 @@ class MapperContext:
                             builder=_builder,
                             native=_native,
                         )
-                    if _native is not None and (
-                        ctx.traverse_relationship is None
-                        or ctx.traverse_relationship(self, _mapper, rel, _native)
+                    if ctx.traverse_relationship is None or ctx.traverse_relationship(
+                        self, _mapper, rel, _native
                     ):
                         self._traverse_relationships(
                             ctx=ctx,
