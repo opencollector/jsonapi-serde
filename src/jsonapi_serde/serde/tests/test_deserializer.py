@@ -1,6 +1,7 @@
 import pytest
 
 from ..models import (
+    URL,
     LinkageRepr,
     LinksRepr,
     ResourceIdRepr,
@@ -87,7 +88,7 @@ def test_basic(target):
 
     assert result == SingletonDocumentRepr(
         links=LinksRepr(
-            self_="/foos/1",
+            self_=URL.from_string("/foos/1"),
             _source_=JSONPointer("/links"),
         ),
         data=ResourceRepr(
@@ -103,8 +104,8 @@ def test_basic(target):
                     "items",
                     LinkageRepr(
                         links=LinksRepr(
-                            self_="/foos/1/relationships/bars/1",
-                            related="/bars/1",
+                            self_=URL.from_string("/foos/1/relationships/bars/1"),
+                            related=URL.from_string("/bars/1"),
                             _source_=JSONPointer("/data/relationships/items/links"),
                         ),
                         data=[
@@ -305,7 +306,7 @@ def test_with_descriptor(target):
 
     assert result == SingletonDocumentRepr(
         links=LinksRepr(
-            self_="/foos/1",
+            self_=URL.from_string("/foos/1"),
             _source_=JSONPointer("/links"),
         ),
         data=ResourceRepr(
@@ -321,8 +322,8 @@ def test_with_descriptor(target):
                     "items",
                     LinkageRepr(
                         links=LinksRepr(
-                            self_="/foos/1/relationships/bars/1",
-                            related="/bars/1",
+                            self_=URL.from_string("/foos/1/relationships/bars/1"),
+                            related=URL.from_string("/bars/1"),
                             _source_=JSONPointer("/data/relationships/items/links"),
                         ),
                         data=[

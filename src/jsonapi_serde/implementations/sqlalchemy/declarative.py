@@ -53,7 +53,11 @@ from ...defaults import (
     DefaultSerdeTypeResolverImpl,
 )
 from ...exceptions import GenericConstraintError, NativeRelationshipNotFoundError
-from ...interfaces import MutationContext, NativeToOneRelationshipDescriptor
+from ...interfaces import (
+    MutationContext,
+    NativeRelationshipDescriptor,
+    NativeToOneRelationshipDescriptor,
+)
 from ...mapper import (
     AttributeMapping,
     Driver,
@@ -65,7 +69,10 @@ from ...mapper import (
     RelationshipPart,
     SerdeTypeResolver,
 )
-from ...models import ResourceToOneRelationshipDescriptor
+from ...models import (
+    ResourceRelationshipDescriptor,
+    ResourceToOneRelationshipDescriptor,
+)
 from ...serde.builders import (
     CollectionDocumentBuilder,
     SingletonDocumentBuilder,
@@ -354,7 +361,18 @@ class Declarative:
             typing.Callable[[RelationshipMapping], RelationshipPart]
         ] = None,
         traverse_relationship: typing.Optional[
-            typing.Callable[["MapperContext", Mapper, RelationshipMapping, typing.Any], bool]
+            typing.Callable[
+                [
+                    "MapperContext",
+                    NativeRelationshipDescriptor,
+                    ResourceRelationshipDescriptor,
+                    Mapper,
+                    Mapper,
+                    typing.Any,
+                    typing.Any,
+                ],
+                bool,
+            ]
         ] = None,
         include_filter: typing.Optional[IncludeFilter] = None,
     ) -> SingletonDocumentBuilder:
@@ -381,7 +399,18 @@ class Declarative:
             typing.Callable[[RelationshipMapping], RelationshipPart]
         ] = None,
         traverse_relationship: typing.Optional[
-            typing.Callable[["MapperContext", Mapper, RelationshipMapping, typing.Any], bool]
+            typing.Callable[
+                [
+                    "MapperContext",
+                    NativeRelationshipDescriptor,
+                    ResourceRelationshipDescriptor,
+                    Mapper,
+                    Mapper,
+                    typing.Any,
+                    typing.Any,
+                ],
+                bool,
+            ]
         ] = None,
         include_filter: typing.Optional[IncludeFilter] = None,
     ) -> CollectionDocumentBuilder:
@@ -411,7 +440,18 @@ class Declarative:
         native: Trss,
         serde_rel_name: str,
         traverse_relationship: typing.Optional[
-            typing.Callable[[MapperContext, Mapper, RelationshipMapping, typing.Any], bool]
+            typing.Callable[
+                [
+                    "MapperContext",
+                    NativeRelationshipDescriptor,
+                    ResourceRelationshipDescriptor,
+                    Mapper,
+                    Mapper,
+                    typing.Any,
+                    typing.Any,
+                ],
+                bool,
+            ]
         ] = None,
         include_filter: typing.Optional[IncludeFilter] = None,
     ) -> ToOneRelDocumentBuilder:
@@ -426,7 +466,18 @@ class Declarative:
         native: Trsc,
         serde_rel_name: str,
         traverse_relationship: typing.Optional[
-            typing.Callable[["MapperContext", Mapper, RelationshipMapping, typing.Any], bool]
+            typing.Callable[
+                [
+                    "MapperContext",
+                    NativeRelationshipDescriptor,
+                    ResourceRelationshipDescriptor,
+                    Mapper,
+                    Mapper,
+                    typing.Any,
+                    typing.Any,
+                ],
+                bool,
+            ]
         ] = None,
         include_filter: typing.Optional[IncludeFilter] = None,
     ) -> ToManyRelDocumentBuilder:
@@ -449,7 +500,7 @@ class Declarative:
         self,
         driver: Driver,
         serde_type_resolver: SerdeTypeResolver,
-        endpoint_resolver: EndpointResolver,
+        endpoint_resolver_factory: typing.Callable[["Declarative"], EndpointResolver],
         info_extractor: InfoExtractor,
         converter_factory: ConverterFactory,
         extract_properties_fn: typing.Optional[
@@ -462,7 +513,7 @@ class Declarative:
         self.mapper_ctx = MapperContext(
             driver=driver,
             serde_type_resolver=serde_type_resolver,
-            endpoint_resolver=endpoint_resolver,
+            endpoint_resolver=endpoint_resolver_factory(self),
         )
         self.info_extractor = info_extractor
         self.converter_factory = converter_factory
@@ -477,7 +528,9 @@ default_marshaller = DefaultStringMarshallerImpl()
 def declarative_with_defaults(
     driver: typing.Optional[Driver] = None,
     serde_type_resolver: typing.Optional[SerdeTypeResolver] = None,
-    endpoint_resolver: typing.Optional[EndpointResolver] = None,
+    endpoint_resolver_factory: typing.Optional[
+        typing.Callable[[Declarative], EndpointResolver]
+    ] = None,
     info_extractor: typing.Optional[InfoExtractor] = None,
     converter_factory: typing.Optional[ConverterFactory] = None,
     extract_properties_fn: typing.Optional[
@@ -488,7 +541,9 @@ def declarative_with_defaults(
     return Declarative(
         driver=(driver or DefaultDriverImpl(default_marshaller)),
         serde_type_resolver=(serde_type_resolver or DefaultSerdeTypeResolverImpl()),
-        endpoint_resolver=(endpoint_resolver or DefaultEndpointResolverImpl()),
+        endpoint_resolver_factory=(
+            endpoint_resolver_factory or (lambda decl: DefaultEndpointResolverImpl())
+        ),
         info_extractor=(info_extractor or DefaultInfoExtractorImpl()),
         converter_factory=(
             converter_factory or DefaultConverterFactoryImpl(DefaultBasicTypeConverterImpl())

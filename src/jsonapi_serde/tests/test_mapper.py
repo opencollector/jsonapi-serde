@@ -1,16 +1,13 @@
 import dataclasses
 import typing
-from unittest import mock
 
 import pytest
 
 from ..exceptions import ImmutableAttributeError
 from ..interfaces import (
-    Endpoint,
     NativeDescriptor,
     NativeToManyRelationshipDescriptor,
     NativeToOneRelationshipDescriptor,
-    PaginatedEndpoint,
 )
 from ..models import (
     ResourceAttributeDescriptor,
@@ -19,6 +16,7 @@ from ..models import (
     ResourceToOneRelationshipDescriptor,
 )
 from ..serde.builders import (
+    CollectionDocumentBuilder,
     ResourceReprBuilder,
     ToManyRelDocumentBuilder,
     ToManyRelReprBuilder,
@@ -26,7 +24,9 @@ from ..serde.builders import (
     ToOneRelReprBuilder,
 )
 from ..serde.models import (
+    URL,
     AttributeValue,
+    CollectionDocumentRepr,
     LinkageRepr,
     LinksRepr,
     ResourceIdRepr,
@@ -36,8 +36,6 @@ from ..serde.models import (
     ToOneRelDocumentRepr,
 )
 from .testing import (
-    DummyEndpoint,
-    DummyPaginatedEndpoint,
     PlainMutationContext,
     PlainNativeAttributeDescriptor,
     PlainNativeDescriptor,
@@ -486,6 +484,7 @@ class TestMapper:
         from ..mapper import (
             AttributeMapping,
             Mapper,
+            PaginatedEndpoint,
             RelationshipMapping,
             RelationshipPart,
             ToSerdeContext,
@@ -510,40 +509,42 @@ class TestMapper:
             def query_type_name_by_descriptor(self, descr: ResourceDescriptor) -> str:
                 return descr.name
 
+            def resolve_singleton_endpoint(
+                self, mapper: Mapper, native: typing.Any
+            ) -> typing.Optional[URL]:
+                return URL.from_string(f"/{mapper.resource_descr.name}/{native.id}/")
+
+            def resolve_collection_endpoint(
+                self, mapper: Mapper, natives: typing.Iterable[typing.Any]
+            ) -> typing.Optional[PaginatedEndpoint]:
+                return PaginatedEndpoint(self_=URL.from_string(f"/{mapper.resource_descr.name}/"))
+
             def resolve_to_one_relationship_endpoint(
                 self,
-                mapper: "Mapper",
+                mapper: Mapper,
                 native_descr: NativeToOneRelationshipDescriptor,
                 rel_descr: ResourceToOneRelationshipDescriptor,
                 native: typing.Any,
-            ) -> Endpoint:
-                related = native_descr.fetch_related(native)
-                return DummyEndpoint(
-                    self_=(
-                        (
-                            f"/{mapper.resource_descr.name}/{native.id}/"
-                            f"@{rel_descr.destination.name}/{related.id}"
-                        )
-                        if related is not None
-                        else None
-                    )
+            ) -> URL:
+                return URL.from_string(
+                    f"/{mapper.resource_descr.name}/{native.id}/" f"@{rel_descr.destination.name}/"
                 )
 
             def resolve_to_many_relationship_endpoint(
                 self,
-                mapper: "Mapper",
+                mapper: Mapper,
                 native_descr: NativeToManyRelationshipDescriptor,
                 rel_descr: ResourceToManyRelationshipDescriptor,
                 native: typing.Any,
             ) -> PaginatedEndpoint:
-                return DummyPaginatedEndpoint(
-                    self_=(
+                return PaginatedEndpoint(
+                    self_=URL.from_string(
                         f"/{mapper.resource_descr.name}/{native.id}/"
-                        f"@{rel_descr.destination.name}?page=0"
+                        f"@{rel_descr.destination.name}?page[number]=0"
                     ),
-                    next=(
+                    next=URL.from_string(
                         f"/{mapper.resource_descr.name}/{native.id}/"
-                        f"@{rel_descr.destination.name}?page=1"
+                        f"@{rel_descr.destination.name}?page[number]=1"
                     ),
                 )
 
@@ -554,6 +555,36 @@ class TestMapper:
                     return baz_mapper
                 else:
                     raise AssertionError()
+
+            def to_one_relationship_visited(
+                self,
+                native_side: NativeToOneRelationshipDescriptor,
+                serde_side: ResourceToOneRelationshipDescriptor,
+                mapper: "Mapper",
+                dest_mapper: "Mapper",
+                native: typing.Any,
+                dest_available: bool,
+                dest: typing.Optional[typing.Any],
+            ) -> None:
+                pass
+
+            def to_many_relationship_visited(
+                self,
+                native_side: NativeToManyRelationshipDescriptor,
+                serde_side: ResourceToManyRelationshipDescriptor,
+                mapper: "Mapper",
+                dest_mapper: "Mapper",
+                native: typing.Any,
+                dest: typing.Optional[typing.Iterable[typing.Any]],
+            ) -> None:
+                pass
+
+            def native_visited(
+                self,
+                mapper: "Mapper",
+                native: typing.Any,
+            ) -> None:
+                pass
 
             def __init__(self, select_relationship: SelectRelationship):
                 self._select_relationship = select_relationship
@@ -579,10 +610,8 @@ class TestMapper:
                 Baz(f=3, g="4", id="2"),
             ],
         )
-        dummy_serde_builder_context = mock.Mock()
         target.build_serde(
             dummy_to_serde_context(lambda _: RelationshipPart.ALL),
-            dummy_serde_builder_context,
             builder,
             native,
         )
@@ -600,7 +629,7 @@ class TestMapper:
                     "bar",
                     LinkageRepr(
                         links=LinksRepr(
-                            self_="/foo/1/@bar/1",
+                            self_=URL.from_string("/foo/1/@bar/"),
                         ),
                         data=ResourceIdRepr(
                             type="bar",
@@ -612,8 +641,8 @@ class TestMapper:
                     "bazs",
                     LinkageRepr(
                         links=LinksRepr(
-                            self_="/foo/1/@baz?page=0",
-                            next="/foo/1/@baz?page=1",
+                            self_=URL.from_string("/foo/1/@baz?page[number]=0"),
+                            next=URL.from_string("/foo/1/@baz?page[number]=1"),
                         ),
                         data=(
                             ResourceIdRepr(
@@ -623,6 +652,141 @@ class TestMapper:
                             ResourceIdRepr(
                                 type="baz",
                                 id="2",
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+        )
+
+    def test_build_serde_collection(self, target, dummy_to_serde_context):
+        from ..mapper import RelationshipPart
+
+        builder = CollectionDocumentBuilder()
+        natives = [
+            Foo(
+                a="1",
+                b=2,
+                c=3,
+                id="1",
+                bar=Bar(
+                    d="1",
+                    e=2,
+                    id="1",
+                ),
+                bazs=[
+                    Baz(f=1, g="2", id="1"),
+                    Baz(f=3, g="4", id="2"),
+                ],
+            ),
+            Foo(
+                a="2",
+                b=3,
+                c=4,
+                id="2",
+                bar=Bar(
+                    d="2",
+                    e=3,
+                    id="2",
+                ),
+                bazs=[
+                    Baz(f=2, g="3", id="3"),
+                    Baz(f=4, g="5", id="4"),
+                ],
+            ),
+        ]
+        target.build_serde_collection(
+            dummy_to_serde_context(lambda _: RelationshipPart.ALL),
+            builder,
+            natives,
+        )
+        assert builder() == CollectionDocumentRepr(
+            links=LinksRepr(
+                self_=URL.from_string("/foo/"),
+            ),
+            data=(
+                ResourceRepr(
+                    type="foo",
+                    id="1",
+                    links=None,
+                    attributes=(
+                        ("a", "1"),
+                        ("b", 2),
+                        ("c", 3),
+                    ),
+                    relationships=(
+                        (
+                            "bar",
+                            LinkageRepr(
+                                links=LinksRepr(
+                                    self_=URL.from_string("/foo/1/@bar/"),
+                                ),
+                                data=ResourceIdRepr(
+                                    type="bar",
+                                    id="1",
+                                ),
+                            ),
+                        ),
+                        (
+                            "bazs",
+                            LinkageRepr(
+                                links=LinksRepr(
+                                    self_=URL.from_string("/foo/1/@baz?page[number]=0"),
+                                    next=URL.from_string("/foo/1/@baz?page[number]=1"),
+                                ),
+                                data=(
+                                    ResourceIdRepr(
+                                        type="baz",
+                                        id="1",
+                                    ),
+                                    ResourceIdRepr(
+                                        type="baz",
+                                        id="2",
+                                    ),
+                                ),
+                            ),
+                        ),
+                    ),
+                ),
+                ResourceRepr(
+                    type="foo",
+                    id="2",
+                    links=None,
+                    attributes=(
+                        ("a", "2"),
+                        ("b", 3),
+                        ("c", 4),
+                    ),
+                    relationships=(
+                        (
+                            "bar",
+                            LinkageRepr(
+                                links=LinksRepr(
+                                    self_=URL.from_string("/foo/2/@bar/"),
+                                ),
+                                data=ResourceIdRepr(
+                                    type="bar",
+                                    id="2",
+                                ),
+                            ),
+                        ),
+                        (
+                            "bazs",
+                            LinkageRepr(
+                                links=LinksRepr(
+                                    self_=URL.from_string("/foo/2/@baz?page[number]=0"),
+                                    next=URL.from_string("/foo/2/@baz?page[number]=1"),
+                                ),
+                                data=(
+                                    ResourceIdRepr(
+                                        type="baz",
+                                        id="3",
+                                    ),
+                                    ResourceIdRepr(
+                                        type="baz",
+                                        id="4",
+                                    ),
+                                ),
                             ),
                         ),
                     ),
@@ -657,7 +821,6 @@ class TestMapper:
                 Baz(f=3, g="4", id="2"),
             ],
         )
-        dummy_serde_builder_context = mock.Mock()
         target.build_serde(
             dummy_to_serde_context(
                 lambda mapping: (
@@ -666,7 +829,6 @@ class TestMapper:
                     else RelationshipPart.NONE
                 )
             ),
-            dummy_serde_builder_context,
             builder,
             native,
         )
@@ -684,8 +846,8 @@ class TestMapper:
                     "bazs",
                     LinkageRepr(
                         links=LinksRepr(
-                            self_="/foo/1/@baz?page=0",
-                            next="/foo/1/@baz?page=1",
+                            self_=URL.from_string("/foo/1/@baz?page[number]=0"),
+                            next=URL.from_string("/foo/1/@baz?page[number]=1"),
                         ),
                         data=(
                             ResourceIdRepr(
@@ -718,7 +880,7 @@ class TestMapper:
             (
                 ToOneRelDocumentRepr(
                     links=LinksRepr(
-                        self_="/foo/1/@bar/1",
+                        self_=URL.from_string("/foo/1/@bar/"),
                     ),
                     data=ResourceIdRepr(
                         type="bar",
@@ -731,7 +893,7 @@ class TestMapper:
             (
                 LinkageRepr(
                     links=LinksRepr(
-                        self_="/foo/1/@bar/1",
+                        self_=URL.from_string("/foo/1/@bar/"),
                     ),
                 ),
                 ToOneRelReprBuilder,
@@ -750,7 +912,7 @@ class TestMapper:
             (
                 LinkageRepr(
                     links=LinksRepr(
-                        self_="/foo/1/@bar/1",
+                        self_=URL.from_string("/foo/1/@bar/"),
                     ),
                     data=ResourceIdRepr(
                         type="bar",
@@ -779,10 +941,8 @@ class TestMapper:
                 id="1",
             ),
         )
-        dummy_serde_builder_context = mock.Mock()
         target.build_serde_to_one_relationship(
             dummy_to_serde_context(lambda _: RelationshipPart.ALL),
-            dummy_serde_builder_context,
             builder,
             native,
             target.get_relationship_mapping_by_serde_name(None, "bar"),
@@ -795,7 +955,7 @@ class TestMapper:
         [
             (
                 ToOneRelDocumentRepr(
-                    links=LinksRepr(),
+                    links=LinksRepr(self_=URL.from_string("/foo/1/@bar/")),
                     data=None,
                 ),
                 ToOneRelDocumentBuilder,
@@ -810,7 +970,7 @@ class TestMapper:
             ),
             (
                 LinkageRepr(
-                    links=LinksRepr(),
+                    links=LinksRepr(self_=URL.from_string("/foo/1/@bar/")),
                 ),
                 ToOneRelReprBuilder,
                 lambda RelationshipPart: RelationshipPart.LINKS,
@@ -824,7 +984,7 @@ class TestMapper:
             ),
             (
                 LinkageRepr(
-                    links=LinksRepr(),
+                    links=LinksRepr(self_=URL.from_string("/foo/1/@bar/")),
                     data=None,
                 ),
                 ToOneRelReprBuilder,
@@ -845,10 +1005,8 @@ class TestMapper:
             id="1",
             bar=None,
         )
-        dummy_serde_builder_context = mock.Mock()
         target.build_serde_to_one_relationship(
             dummy_to_serde_context(lambda _: RelationshipPart.ALL),
-            dummy_serde_builder_context,
             builder,
             native,
             target.get_relationship_mapping_by_serde_name(None, "bar"),
@@ -878,8 +1036,8 @@ class TestMapper:
             (
                 ToManyRelDocumentRepr(
                     links=LinksRepr(
-                        self_="/foo/1/@baz?page=0",
-                        next="/foo/1/@baz?page=1",
+                        self_=URL.from_string("/foo/1/@baz?page[number]=0"),
+                        next=URL.from_string("/foo/1/@baz?page[number]=1"),
                     ),
                     data=(
                         ResourceIdRepr(
@@ -898,8 +1056,8 @@ class TestMapper:
             (
                 LinkageRepr(
                     links=LinksRepr(
-                        self_="/foo/1/@baz?page=0",
-                        next="/foo/1/@baz?page=1",
+                        self_=URL.from_string("/foo/1/@baz?page[number]=0"),
+                        next=URL.from_string("/foo/1/@baz?page[number]=1"),
                     ),
                 ),
                 ToManyRelReprBuilder,
@@ -924,8 +1082,8 @@ class TestMapper:
             (
                 LinkageRepr(
                     links=LinksRepr(
-                        self_="/foo/1/@baz?page=0",
-                        next="/foo/1/@baz?page=1",
+                        self_=URL.from_string("/foo/1/@baz?page[number]=0"),
+                        next=URL.from_string("/foo/1/@baz?page[number]=1"),
                     ),
                     data=(
                         ResourceIdRepr(
@@ -959,10 +1117,8 @@ class TestMapper:
                 Baz(f=3, g="4", id="2"),
             ],
         )
-        dummy_serde_builder_context = mock.Mock()
         target.build_serde_to_many_relationship(
             dummy_to_serde_context(lambda _: RelationshipPart.ALL),
-            dummy_serde_builder_context,
             builder,
             native,
             target.get_relationship_mapping_by_serde_name(None, "bazs"),

@@ -7,6 +7,7 @@ import dataclasses
 import datetime
 import decimal
 import typing
+import urllib.parse
 from collections import OrderedDict
 
 from ..utils import UNSPECIFIED, UnspecifiedType
@@ -25,6 +26,50 @@ class Repr:
 
 
 @dataclasses.dataclass
+class URL:
+    """
+    :py:class:`URL` class represents a URL
+    """
+
+    scheme: typing.Optional[str] = None
+    netloc: typing.Optional[str] = None
+    path: typing.Optional[str] = None
+    query: typing.Sequence[typing.Tuple[str, str]] = dataclasses.field(default_factory=list)
+
+    def __or__(self, that: object) -> "URL":
+        assert isinstance(that, URL)
+        return URL(
+            scheme=(that.scheme or self.scheme),
+            netloc=(that.netloc or self.netloc),
+            path=(that.path or self.path),
+            query=[*self.query, *that.query],
+        )
+
+    def __str__(self) -> str:
+        return urllib.parse.urlunparse(self.to_tuple())
+
+    def to_tuple(self) -> urllib.parse.ParseResult:
+        return urllib.parse.ParseResult(
+            self.scheme or "",
+            self.netloc or "",
+            self.path or "",
+            "",
+            urllib.parse.urlencode(self.query),
+            "",
+        )
+
+    @classmethod
+    def from_string(cls, repr_: str) -> "URL":
+        r = urllib.parse.urlparse(repr_)
+        return cls(
+            scheme=r.scheme,
+            netloc=r.netloc,
+            path=r.path,
+            query=urllib.parse.parse_qsl(r.query),
+        )
+
+
+@dataclasses.dataclass
 class LinksRepr(Repr):
     """
     :py:class:`LinksRepr` class represents a ``links`` node of JSON:API.
@@ -35,12 +80,12 @@ class LinksRepr(Repr):
     * `Related Resource Links <https://jsonapi.org/format/#document-resource-object-related-resource-links>`_
     """
 
-    self_: typing.Optional[str] = None
-    related: typing.Optional[str] = None
-    next: typing.Optional[str] = None
-    prev: typing.Optional[str] = None
-    first: typing.Optional[str] = None
-    last: typing.Optional[str] = None
+    self_: typing.Optional[URL] = None
+    related: typing.Optional[URL] = None
+    next: typing.Optional[URL] = None
+    prev: typing.Optional[URL] = None
+    first: typing.Optional[URL] = None
+    last: typing.Optional[URL] = None
 
 
 @dataclasses.dataclass(init=False)

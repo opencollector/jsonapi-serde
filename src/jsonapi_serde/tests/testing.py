@@ -1,11 +1,9 @@
-import dataclasses
 import typing
 
 from ..declarative import AttributeFlags, InfoExtractor, RelationshipFlags
 from ..deferred import Deferred, Promise
 from ..exceptions import NativeAttributeNotFoundError, NativeRelationshipNotFoundError
 from ..interfaces import (
-    Endpoint,
     MutationContext,
     MutatorDescriptor,
     NativeAttributeDescriptor,
@@ -19,7 +17,6 @@ from ..interfaces import (
     NativeToOneRelationshipDescriptor,
     NativeToOneRelationshipManipulator,
     NativeUpdater,
-    PaginatedEndpoint,
 )
 from ..utils import assert_not_none
 
@@ -417,34 +414,6 @@ class PlainNativeDescriptor(NativeDescriptor):
         self._class_ = class_
         self._attributes = attributes
         self._relationships = relationships
-
-
-@dataclasses.dataclass
-class DummyEndpoint(Endpoint):
-    self_: typing.Optional[str]
-
-    def get_self(self) -> typing.Optional[str]:
-        return self.self_
-
-
-@dataclasses.dataclass
-class DummyPaginatedEndpoint(DummyEndpoint, PaginatedEndpoint):
-    next: typing.Optional[str] = None
-    prev: typing.Optional[str] = None
-    first: typing.Optional[str] = None
-    last: typing.Optional[str] = None
-
-    def get_next(self) -> typing.Optional[str]:
-        return self.next
-
-    def get_prev(self) -> typing.Optional[str]:
-        return self.prev
-
-    def get_first(self) -> typing.Optional[str]:
-        return self.first
-
-    def get_last(self) -> typing.Optional[str]:
-        return self.last
 
 
 class PlainInfoExtractor(InfoExtractor):

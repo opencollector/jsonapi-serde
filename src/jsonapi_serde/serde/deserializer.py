@@ -6,6 +6,7 @@ import typing
 from .exceptions import DeserializationError
 from .interfaces import ResourceDescriptor
 from .models import (
+    URL,
     AttributeValue,
     DocumentReprBase,
     LinkageRepr,
@@ -192,6 +193,28 @@ class ReprDeserializer:
             )
             return (None, math.inf)
 
+    def _convert_url(
+        self,
+        converter: PyTypedJsonicDataConverter,
+        ctx: ConverterContext,
+        pointer: JSONPointer,
+        typ: JsonicType,
+        value: JSONValue,
+    ) -> typing.Tuple[JsonicValue, float]:
+        if not isinstance(value, str):
+            ctx.validation_error_occurred(
+                JsonicDataValidationError(pointer, f"value must have be string, got {value!r}")
+            )
+            return (None, math.inf)
+
+        try:
+            return (URL.from_string(value), 1.0)
+        except ValueError:
+            ctx.validation_error_occurred(
+                JsonicDataValidationError(pointer, f"failed to parse {value!r} as a URL")
+            )
+            return (None, math.inf)
+
     def _set_source(
         self,
         converter: "PyTypedJsonicDataConverter",
@@ -228,7 +251,11 @@ class ReprDeserializer:
                 ResourceRepr: CustomConverterFuncAdapter(
                     lambda typ: "resource",
                     self._convert_resource_repr,
-                )
+                ),
+                URL: CustomConverterFuncAdapter(
+                    lambda typ: "URL",
+                    self._convert_url,
+                ),
             },
             {
                 LinksRepr: NameMapperFuncAdapter(

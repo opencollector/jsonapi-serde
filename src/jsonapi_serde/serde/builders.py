@@ -179,7 +179,17 @@ class DocumentBuilder(NodeReprBuilder, metaclass=abc.ABCMeta):
         self.included = []
 
 
-class CollectionDocumentBuilder(DocumentBuilder):
+class ResourceReprCollectionBuilder(typing.Protocol):
+    links: typing.Optional[LinksRepr]
+
+    def next(self) -> "ResourceReprBuilder":
+        ...  # pragma: nocover
+
+    def done(self) -> None:
+        ...  # pragma: nocover
+
+
+class CollectionDocumentBuilder(DocumentBuilder, ResourceReprCollectionBuilder):
     data: typing.List["ResourceReprBuilder"]
     _done: bool = False
 

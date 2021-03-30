@@ -14,7 +14,6 @@ from .exceptions import (
     RelationshipNotFoundError,
 )
 from .interfaces import (  # noqa: F401
-    Endpoint,
     MutationContext,
     MutatorDescriptor,
     NativeAttributeDescriptor,
@@ -26,7 +25,6 @@ from .interfaces import (  # noqa: F401
     NativeToOneRelationshipBuilder,
     NativeToOneRelationshipDescriptor,
     NativeUpdater,
-    PaginatedEndpoint,
 )
 from .models import (
     ResourceAttributeDescriptor,
@@ -40,6 +38,7 @@ from .serde.builders import (
     DocumentBuilder,
     ResourceIdReprBuilder,
     ResourceReprBuilder,
+    ResourceReprCollectionBuilder,
     SingletonDocumentBuilder,
     ToManyRelDocumentBuilder,
     ToManyRelReprBuilder,
@@ -47,6 +46,7 @@ from .serde.builders import (
     ToOneRelReprBuilder,
 )
 from .serde.models import (
+    URL,
     AttributeValue,
     LinksRepr,
     ResourceIdRepr,
@@ -55,6 +55,40 @@ from .serde.models import (
 )
 from .serde.utils import JSONPointer
 from .utils import assert_not_none
+
+
+@dataclasses.dataclass
+class PaginatedEndpoint:
+    """
+    A ``PaginatedEndpoint`` describes an endpoint that provides collection of resources.
+    """
+
+    self_: URL
+    """
+    Value for ``self`` key of a JSONAPI's links object.
+    """
+
+    prev: typing.Optional[URL] = None
+    """
+    Value for ``prev`` key of a JSONAPI's links object.
+
+    This field is optional when the previous page is not available.
+    """
+
+    next: typing.Optional[URL] = None
+    """
+    Value for ``next`` key of a JSONAPI's links object. This field is optional.
+    """
+
+    first: typing.Optional[URL] = None
+    """
+    Value for ``first`` key of a JSONAPI's links object.  This field is optional.
+    """
+
+    last: typing.Optional[URL] = None
+    """
+    Value for ``last`` key of a JSONAPI's links object.  This field is optional.
+    """
 
 
 class RelationshipPart(enum.IntEnum):
@@ -78,13 +112,25 @@ class ToSerdeContext(metaclass=abc.ABCMeta):
         ...  # pragma: nocover
 
     @abc.abstractmethod
+    def resolve_singleton_endpoint(
+        self, mapper: "Mapper", native: typing.Any
+    ) -> typing.Optional[URL]:
+        ...  # pragma: nocover
+
+    @abc.abstractmethod
+    def resolve_collection_endpoint(
+        self, mapper: "Mapper", natives: typing.Iterable[typing.Any]
+    ) -> typing.Optional[PaginatedEndpoint]:
+        ...  # pragma: nocover
+
+    @abc.abstractmethod
     def resolve_to_one_relationship_endpoint(
         self,
         mapper: "Mapper",
         native_descr: NativeToOneRelationshipDescriptor,
         rel_descr: ResourceToOneRelationshipDescriptor,
         native: typing.Any,
-    ) -> typing.Optional[Endpoint]:
+    ) -> typing.Optional[URL]:
         ...  # pragma: nocover
 
     @abc.abstractmethod
@@ -103,6 +149,39 @@ class ToSerdeContext(metaclass=abc.ABCMeta):
 
     @abc.abstractmethod
     def get_serde_identity_by_native(self, mapper: "Mapper", native: typing.Any) -> str:
+        ...  # pragma: nocover
+
+    @abc.abstractmethod
+    def to_one_relationship_visited(
+        self,
+        native_side: NativeToOneRelationshipDescriptor,
+        serde_side: ResourceToOneRelationshipDescriptor,
+        mapper: "Mapper",
+        dest_mapper: "Mapper",
+        native: typing.Any,
+        dest_available: bool,
+        dest: typing.Optional[typing.Any],
+    ):
+        ...  # pragma: nocover
+
+    @abc.abstractmethod
+    def to_many_relationship_visited(
+        self,
+        native_side: NativeToManyRelationshipDescriptor,
+        serde_side: ResourceToManyRelationshipDescriptor,
+        mapper: "Mapper",
+        dest_mapper: "Mapper",
+        native: typing.Any,
+        dest: typing.Optional[typing.Iterable[typing.Any]],
+    ):
+        ...  # pragma: nocover
+
+    @abc.abstractmethod
+    def native_visited(
+        self,
+        mapper: "Mapper",
+        native: typing.Any,
+    ):
         ...  # pragma: nocover
 
 
@@ -161,9 +240,8 @@ class SiteContext:
     to_native_ctx: typing.Optional[ToNativeContext] = None
     to_serde_ctx: typing.Optional[ToSerdeContext] = None
     mctx: typing.Optional[MutationContext] = None
-    sbctx: typing.Optional["SerdeBuilderContext"] = None
     serde: GenericRepr = None
-    target: typing.Optional[typing.Any] = None
+    target: typing.Union[typing.Any, typing.Iterable[typing.Any], None] = None
     rm: typing.Optional["RelationshipMapping"] = None
 
 
@@ -462,20 +540,6 @@ class RelationshipMapping:
     ):
         self.serde_side = serde_side
         self.native_side = native_side
-
-
-class SerdeBuilderContext(metaclass=abc.ABCMeta):
-    @abc.abstractmethod
-    def native_visited(
-        self,
-        ctx: ToSerdeContext,
-        native_side: NativeRelationshipDescriptor,
-        serde_side: ResourceRelationshipDescriptor,
-        mapper: "Mapper",
-        dest_mapper: "Mapper",
-        native: typing.Any,
-    ):
-        ...  # pragma: nocover
 
 
 Tm = typing.TypeVar("Tm")
@@ -1009,150 +1073,199 @@ class Mapper(typing.Generic[Tm]):
 
     def _build_serde_to_one(
         self,
-        ctx: ToSerdeContext,
-        rctx: SerdeBuilderContext,
+        site_ctx: SiteContext,
         builder: typing.Union[ToOneRelReprBuilder, ToOneRelDocumentBuilder],
         native: Tm,
         native_side: NativeToOneRelationshipDescriptor,
         serde_side: ResourceToOneRelationshipDescriptor,
         parts: RelationshipPart,
     ) -> None:
+        ctx = site_ctx.to_serde_ctx
+        assert ctx is not None
         if parts & RelationshipPart.LINKS:
             ep = ctx.resolve_to_one_relationship_endpoint(self, native_side, serde_side, native)
             if ep is not None:
-                builder.links = LinksRepr(self_=ep.get_self())
+                builder.links = LinksRepr(self_=ep)
+        dest_mapper = ctx.query_mapper_by_native(native_side.destination)
+        dest_available: bool = False
+        dest: typing.Optional[typing.Any] = None
         if parts & RelationshipPart.DATA:
-            dest_mapper = ctx.query_mapper_by_native(native_side.destination)
             dest = native_side.fetch_related(native)
+            dest_available = True
+            _builder = builder.set()
             if dest is not None:
-                rctx.native_visited(ctx, native_side, serde_side, self, dest_mapper, dest)
-                dest_mapper.build_serde(ctx, rctx, builder.set(), dest)
-            else:
-                builder.set()
+                dest_mapper._build_serde_rel(site_ctx, _builder, dest)
+        ctx.to_one_relationship_visited(
+            native_side, serde_side, self, dest_mapper, native, dest_available, dest
+        )
 
     def _build_serde_to_many(
         self,
-        ctx: ToSerdeContext,
-        rctx: SerdeBuilderContext,
+        site_ctx: SiteContext,
         builder: typing.Union[ToManyRelReprBuilder, ToManyRelDocumentBuilder],
         native: Tm,
         native_side: NativeToManyRelationshipDescriptor,
         serde_side: ResourceToManyRelationshipDescriptor,
         parts: RelationshipPart,
     ) -> None:
+        ctx = site_ctx.to_serde_ctx
+        assert ctx is not None
         if parts & RelationshipPart.LINKS:
             ep = ctx.resolve_to_many_relationship_endpoint(self, native_side, serde_side, native)
             if ep is not None:
                 builder.links = LinksRepr(
-                    self_=ep.get_self(),
-                    prev=ep.get_prev(),
-                    next=ep.get_next(),
-                    first=ep.get_first(),
-                    last=ep.get_last(),
+                    self_=ep.self_,
+                    prev=ep.prev,
+                    next=ep.next,
+                    first=ep.first,
+                    last=ep.last,
                 )
+        dest_mapper = ctx.query_mapper_by_native(native_side.destination)
+        dest: typing.Optional[typing.Iterable[typing.Any]] = None
         if parts & RelationshipPart.DATA:
-            dest_mapper = ctx.query_mapper_by_native(native_side.destination)
             dest = native_side.fetch_related(native)
             for n in dest:
-                rctx.native_visited(ctx, native_side, serde_side, self, dest_mapper, n)
-                dest_mapper.build_serde(ctx, rctx, builder.next(), n)
+                dest_mapper._build_serde_rel(site_ctx, builder.next(), n)
             builder.done()
+        ctx.to_many_relationship_visited(native_side, serde_side, self, dest_mapper, native, dest)
 
     def build_serde_to_one_relationship(
         self,
         ctx: ToSerdeContext,
-        rctx: SerdeBuilderContext,
         builder: typing.Union[ToOneRelReprBuilder, ToOneRelDocumentBuilder],
         native: Tm,
         rm: RelationshipMapping,
         parts: RelationshipPart,
     ) -> None:
         assert isinstance(rm.native_side, NativeToOneRelationshipDescriptor)
+        site_ctx = SiteContext(Operation.RETRIEVE, mapper=self, to_serde_ctx=ctx, target=native)
+        assert isinstance(rm.serde_side, ResourceToOneRelationshipDescriptor)
         self._build_serde_to_one(
-            ctx,
-            rctx,
+            site_ctx,
             builder,
             native,
-            typing.cast(NativeToOneRelationshipDescriptor, rm.native_side),
-            typing.cast(ResourceToOneRelationshipDescriptor, rm.serde_side),
+            rm.native_side,
+            rm.serde_side,
             parts,
         )
 
     def build_serde_to_many_relationship(
         self,
         ctx: ToSerdeContext,
-        rctx: SerdeBuilderContext,
         builder: typing.Union[ToManyRelReprBuilder, ToManyRelDocumentBuilder],
         native: Tm,
         rm: RelationshipMapping,
         parts: RelationshipPart,
     ) -> None:
         assert isinstance(rm.native_side, NativeToManyRelationshipDescriptor)
-        self._build_serde_to_many(
-            ctx,
-            rctx,
-            builder,
-            native,
-            typing.cast(NativeToManyRelationshipDescriptor, rm.native_side),
-            typing.cast(ResourceToManyRelationshipDescriptor, rm.serde_side),
-            parts,
-        )
+        site_ctx = SiteContext(Operation.RETRIEVE, mapper=self, to_serde_ctx=ctx, target=native)
+        assert isinstance(rm.serde_side, ResourceToManyRelationshipDescriptor)
+        self._build_serde_to_many(site_ctx, builder, native, rm.native_side, rm.serde_side, parts)
 
     def _build_serde_relationship(
         self,
-        ctx: ToSerdeContext,
-        rctx: SerdeBuilderContext,
+        site_ctx: SiteContext,
         builder: ResourceReprBuilder,
-        native: Tm,
         rm: RelationshipMapping,
+        native: Tm,
     ) -> None:
-        dest_builder: typing.Union[ToOneRelReprBuilder, ToManyRelReprBuilder]
-        parts = ctx.select_relationship(rm)
+        assert site_ctx.to_serde_ctx is not None
+        parts = site_ctx.to_serde_ctx.select_relationship(rm)
+        native_side = rm.native_side
+        serde_side = rm.serde_side
         if parts:
-            if isinstance(rm.native_side, NativeToOneRelationshipDescriptor):
-                self.build_serde_to_one_relationship(
-                    ctx,
-                    rctx,
+            if isinstance(native_side, NativeToOneRelationshipDescriptor):
+                assert isinstance(serde_side, ResourceToOneRelationshipDescriptor)
+                self._build_serde_to_one(
+                    site_ctx,
                     builder.next_to_one_relationship(assert_not_none(rm.serde_side.name)),
                     native,
-                    rm,
+                    native_side,
+                    serde_side,
                     parts,
                 )
-            elif isinstance(rm.native_side, NativeToManyRelationshipDescriptor):
-                self.build_serde_to_many_relationship(
-                    ctx,
-                    rctx,
+            elif isinstance(native_side, NativeToManyRelationshipDescriptor):
+                assert isinstance(serde_side, ResourceToManyRelationshipDescriptor)
+                self._build_serde_to_many(
+                    site_ctx,
                     builder.next_to_many_relationship(assert_not_none(rm.serde_side.name)),
                     native,
-                    rm,
+                    native_side,
+                    serde_side,
                     parts,
                 )
             else:
                 raise AssertionError("should never get here!")
 
-    def build_serde(
+    def _build_serde_rel(
         self,
-        ctx: ToSerdeContext,
-        rctx: SerdeBuilderContext,
-        builder: typing.Union[ResourceReprBuilder, ResourceIdReprBuilder],
+        site_ctx: SiteContext,
+        builder: ResourceIdReprBuilder,
         native: Tm,
     ) -> None:
-        site_ctx = SiteContext(
-            Operation.RETRIEVE, mapper=self, to_serde_ctx=ctx, sbctx=rctx, target=native
-        )
-
+        ctx = site_ctx.to_serde_ctx
+        assert ctx is not None
         builder.type = ctx.query_type_name_by_descriptor(self.resource_descr)
         builder.id = self.get_serde_identity_by_native(ctx, native)
+        for sbf in self.serde_builder_filters:
+            sbf(site_ctx, builder)
+        ctx.native_visited(self, native)
+
+    def _build_serde(
+        self,
+        site_ctx: SiteContext,
+        builder: ResourceReprBuilder,
+        native: Tm,
+    ) -> None:
+        ctx = site_ctx.to_serde_ctx
+        assert ctx is not None
+        builder.type = ctx.query_type_name_by_descriptor(self.resource_descr)
+        builder.id = self.get_serde_identity_by_native(ctx, native)
+        ep = ctx.resolve_singleton_endpoint(self, native)
+        if ep is not None:
+            builder.links = LinksRepr(self_=ep)
         if isinstance(builder, ResourceReprBuilder):
             builder.links = None
             for am in self.attribute_mappings:
                 if ctx.select_attribute(am):
                     am.to_serde(ctx, native, builder)
             for rm in self.relationship_mappings:
-                self._build_serde_relationship(ctx, rctx, builder, native, rm)
+                self._build_serde_relationship(site_ctx, builder, rm, native)
 
         for sbf in self.serde_builder_filters:
             sbf(site_ctx, builder)
+
+        ctx.native_visited(self, native)
+
+    def build_serde(
+        self,
+        ctx: ToSerdeContext,
+        builder: ResourceReprBuilder,
+        native: Tm,
+    ) -> None:
+        site_ctx = SiteContext(Operation.RETRIEVE, mapper=self, to_serde_ctx=ctx, target=native)
+        self._build_serde(site_ctx, builder, native)
+
+    def build_serde_collection(
+        self,
+        ctx: ToSerdeContext,
+        builder: ResourceReprCollectionBuilder,
+        natives: typing.Iterable[Tm],
+    ) -> None:
+        site_ctx = SiteContext(Operation.RETRIEVE, mapper=self, to_serde_ctx=ctx, target=natives)
+        ep = ctx.resolve_collection_endpoint(self, natives)
+        if ep is not None:
+            builder.links = LinksRepr(
+                self_=ep.self_,
+                prev=ep.prev,
+                next=ep.next,
+                first=ep.first,
+                last=ep.last,
+            )
+        for native in natives:
+            inner_builder = builder.next()
+            self._build_serde(site_ctx, inner_builder, native)
+        builder.done()
 
     def bind(self, ctx: "MapperContext") -> None:
         self.ctx = ctx
@@ -1208,27 +1321,36 @@ class SerdeTypeResolver(metaclass=abc.ABCMeta):
 
 class EndpointResolver(metaclass=abc.ABCMeta):
     @abc.abstractmethod
-    def resolve_singleton_endpoint(self, mapper: Mapper) -> typing.Optional[Endpoint]:
+    def resolve_singleton_endpoint(
+        self, ctx: ToSerdeContext, mapper: "Mapper", native: typing.Any
+    ) -> typing.Optional[URL]:
         ...  # pragma: nocover
 
     @abc.abstractmethod
-    def resolve_collection_endpoint(self, mapper: Mapper) -> typing.Optional[PaginatedEndpoint]:
+    def resolve_collection_endpoint(
+        self,
+        ctx: ToSerdeContext,
+        mapper: "Mapper",
+        natives: typing.Iterable[typing.Any],
+    ) -> typing.Optional[PaginatedEndpoint]:
         ...  # pragma: nocover
 
     @abc.abstractmethod
     def resolve_to_one_relationship_endpoint(
         self,
-        mapper: Mapper,
+        ctx: ToSerdeContext,
+        mapper: "Mapper",
         native_descr: NativeToOneRelationshipDescriptor,
         rel_descr: ResourceToOneRelationshipDescriptor,
         native: typing.Any,
-    ) -> typing.Optional[Endpoint]:
+    ) -> typing.Optional[URL]:
         ...  # pragma: nocover
 
     @abc.abstractmethod
     def resolve_to_many_relationship_endpoint(
         self,
-        mapper: Mapper,
+        ctx: ToSerdeContext,
+        mapper: "Mapper",
         native_descr: NativeToManyRelationshipDescriptor,
         rel_descr: ResourceToManyRelationshipDescriptor,
         native: typing.Any,
@@ -1258,7 +1380,7 @@ class MapperContext:
     _resource_descr_to_mapper_mappings: typing.MutableMapping[ResourceDescriptor, Mapper]
     _native_class_to_descr_mappings: typing.MutableMapping[typing.Type, NativeDescriptor]
 
-    class _ToSerdeContext(ToSerdeContext, SerdeBuilderContext):
+    class _ToSerdeContext(ToSerdeContext):
         outer_ctx: "MapperContext"
         doc_builder: DocumentBuilder
         _select_attribute: typing.Optional[typing.Callable[[AttributeMapping], bool]]
@@ -1266,7 +1388,18 @@ class MapperContext:
             typing.Callable[[RelationshipMapping], RelationshipPart]
         ]
         traverse_relationship: typing.Optional[
-            typing.Callable[["MapperContext", Mapper, RelationshipMapping, typing.Any], bool]
+            typing.Callable[
+                [
+                    "MapperContext",
+                    NativeRelationshipDescriptor,
+                    ResourceRelationshipDescriptor,
+                    Mapper,
+                    Mapper,
+                    typing.Any,
+                    typing.Any,
+                ],
+                bool,
+            ]
         ]
         _include_filter: typing.Optional[IncludeFilter] = None
         _included: typing.Set[typing.Any]
@@ -1285,15 +1418,27 @@ class MapperContext:
         def query_type_name_by_descriptor(self, descr: ResourceDescriptor) -> str:
             return self.outer_ctx.serde_type_resolver.query_type_name_by_descriptor(descr)
 
+        def resolve_singleton_endpoint(
+            self, mapper: Mapper, native: typing.Any
+        ) -> typing.Optional[URL]:
+            return self.outer_ctx.endpoint_resolver.resolve_singleton_endpoint(self, mapper, native)
+
+        def resolve_collection_endpoint(
+            self, mapper: Mapper, natives: typing.Iterable[typing.Any]
+        ) -> typing.Optional[PaginatedEndpoint]:
+            return self.outer_ctx.endpoint_resolver.resolve_collection_endpoint(
+                self, mapper, natives
+            )
+
         def resolve_to_one_relationship_endpoint(
             self,
             mapper: Mapper,
             native_descr: NativeToOneRelationshipDescriptor,
             rel_descr: ResourceToOneRelationshipDescriptor,
             native: typing.Any,
-        ) -> typing.Optional[Endpoint]:
+        ) -> typing.Optional[URL]:
             return self.outer_ctx.endpoint_resolver.resolve_to_one_relationship_endpoint(
-                mapper, native_descr, rel_descr, native
+                self, mapper, native_descr, rel_descr, native
             )
 
         def resolve_to_many_relationship_endpoint(
@@ -1304,7 +1449,7 @@ class MapperContext:
             native: typing.Any,
         ) -> typing.Optional[PaginatedEndpoint]:
             return self.outer_ctx.endpoint_resolver.resolve_to_many_relationship_endpoint(
-                mapper, native_descr, rel_descr, native
+                self, mapper, native_descr, rel_descr, native
             )
 
         def query_mapper_by_native(self, descr: NativeDescriptor) -> Mapper:
@@ -1315,7 +1460,6 @@ class MapperContext:
 
         def should_include(
             self,
-            ctx: ToSerdeContext,
             native_side: NativeRelationshipDescriptor,
             serde_side: ResourceRelationshipDescriptor,
             mapper: Mapper,
@@ -1323,24 +1467,108 @@ class MapperContext:
             native: typing.Any,
         ) -> bool:
             return self._include_filter is not None and self._include_filter(
-                self.outer_ctx, ctx, native_side, serde_side, mapper, dest_mapper, native
+                self.outer_ctx, self, native_side, serde_side, mapper, dest_mapper, native
             )
 
-        def native_visited(
+        def _traverse_relationships(
             self,
-            ctx: ToSerdeContext,
-            native_side: NativeRelationshipDescriptor,
-            serde_side: ResourceRelationshipDescriptor,
+            mapper: Mapper,
+            native: typing.Any,
+        ):
+            for rm in mapper.relationship_mappings:
+                native_side = rm.native_side
+                serde_side = rm.serde_side
+                dest_mapper = self.query_mapper_by_native(native_side.destination)
+                if isinstance(native_side, NativeToOneRelationshipDescriptor):
+                    assert isinstance(serde_side, ResourceToOneRelationshipDescriptor)
+                    self.to_one_relationship_visited(
+                        native_side,
+                        serde_side,
+                        mapper,
+                        dest_mapper,
+                        native,
+                        False,
+                        None,
+                    )
+                elif isinstance(native_side, NativeToManyRelationshipDescriptor):
+                    assert isinstance(serde_side, ResourceToManyRelationshipDescriptor)
+                    self.to_many_relationship_visited(
+                        native_side,
+                        serde_side,
+                        mapper,
+                        dest_mapper,
+                        native,
+                        None,
+                    )
+                else:
+                    raise AssertionError("never get here")
+
+        def to_one_relationship_visited(
+            self,
+            native_side: NativeToOneRelationshipDescriptor,
+            serde_side: ResourceToOneRelationshipDescriptor,
             mapper: Mapper,
             dest_mapper: Mapper,
             native: typing.Any,
-        ):
-            if not self.mark_included(native):
+            dest_available: bool,
+            dest: typing.Optional[typing.Any],
+        ) -> None:
+            if native is None:
                 return
-            if not self.should_include(ctx, native_side, serde_side, mapper, dest_mapper, native):
+            if not dest_available:
+                dest = native_side.fetch_related(native)
+            if not self.mark_traversed(dest):
                 return
-            builder = self.doc_builder.next_included()
-            dest_mapper.build_serde(ctx, self, builder, native)
+            if self.mark_included(dest) and self.should_include(
+                native_side, serde_side, mapper, dest_mapper, dest
+            ):
+                _builder = self.doc_builder.next_included()
+                dest_mapper.build_serde(self, _builder, dest)
+            elif dest is not None and (
+                self.traverse_relationship is None
+                or self.traverse_relationship(
+                    self.outer_ctx, native_side, serde_side, mapper, dest_mapper, native, dest
+                )
+            ):
+                self._traverse_relationships(dest_mapper, dest)
+
+        def to_many_relationship_visited(
+            self,
+            native_side: NativeToManyRelationshipDescriptor,
+            serde_side: ResourceToManyRelationshipDescriptor,
+            mapper: Mapper,
+            dest_mapper: Mapper,
+            native: typing.Any,
+            dest: typing.Optional[typing.Iterable[typing.Any]],
+        ) -> None:
+            if dest is None:
+                dest = native_side.fetch_related(native)
+            for _native in dest:
+                if _native is None:
+                    continue
+                if not self.mark_traversed(_native):
+                    continue
+                if self.mark_included(_native) and self.should_include(
+                    native_side, serde_side, mapper, dest_mapper, _native
+                ):
+                    _builder = self.doc_builder.next_included()
+                    dest_mapper.build_serde(self, _builder, _native)
+                elif _native is not None and (
+                    self.traverse_relationship is None
+                    or self.traverse_relationship(
+                        self.outer_ctx,
+                        native_side,
+                        serde_side,
+                        mapper,
+                        dest_mapper,
+                        native,
+                        _native,
+                    )
+                ):
+                    self._traverse_relationships(dest_mapper, _native)
+
+        def native_visited(self, mapper: Mapper, native: typing.Any) -> None:
+            pass
 
         def mark_included(self, native: typing.Any) -> bool:
             if native in self._included:
@@ -1363,7 +1591,18 @@ class MapperContext:
                 typing.Callable[[RelationshipMapping], RelationshipPart]
             ],
             traverse_relationship: typing.Optional[
-                typing.Callable[["MapperContext", Mapper, RelationshipMapping, typing.Any], bool]
+                typing.Callable[
+                    [
+                        "MapperContext",
+                        NativeRelationshipDescriptor,
+                        ResourceRelationshipDescriptor,
+                        Mapper,
+                        Mapper,
+                        typing.Any,
+                        typing.Any,
+                    ],
+                    bool,
+                ]
             ],
             include_filter: typing.Optional[IncludeFilter],
         ):
@@ -1462,7 +1701,18 @@ class MapperContext:
             typing.Callable[[RelationshipMapping], RelationshipPart]
         ] = None,
         traverse_relationship: typing.Optional[
-            typing.Callable[["MapperContext", Mapper, RelationshipMapping, typing.Any], bool]
+            typing.Callable[
+                [
+                    "MapperContext",
+                    NativeRelationshipDescriptor,
+                    ResourceRelationshipDescriptor,
+                    Mapper,
+                    Mapper,
+                    typing.Any,
+                    typing.Any,
+                ],
+                bool,
+            ]
         ] = None,
         include_filter: typing.Optional[IncludeFilter] = None,
     ):
@@ -1623,71 +1873,6 @@ class MapperContext:
 
     Tss = typing.TypeVar("Tss")
 
-    def _traverse_relationships(
-        self,
-        ctx: _ToSerdeContext,
-        mapper: Mapper,
-        native: Tss,
-    ) -> None:
-        for rel in mapper.relationship_mappings:
-            if isinstance(rel.native_side, NativeToOneRelationshipDescriptor):
-                _native = rel.native_side.fetch_related(native)
-                if _native is None:
-                    continue
-                _mapper = self.query_mapper_by_native_class(rel.native_side.destination.class_)
-                if not ctx.mark_traversed(_native):
-                    return
-                if ctx.mark_included(_native) and ctx.should_include(
-                    ctx, rel.native_side, rel.serde_side, mapper, _mapper, _native
-                ):
-                    ep = self.endpoint_resolver.resolve_singleton_endpoint(mapper)
-                    _builder = ctx.doc_builder.next_included()
-                    if ep is not None:
-                        _builder.links = LinksRepr(self_=ep.get_self())
-                    _mapper.build_serde(
-                        ctx=ctx,
-                        rctx=ctx,
-                        builder=_builder,
-                        native=_native,
-                    )
-                if ctx.traverse_relationship is None or ctx.traverse_relationship(
-                    self, _mapper, rel, _native
-                ):
-                    self._traverse_relationships(
-                        ctx=ctx,
-                        mapper=_mapper,
-                        native=_native,
-                    )
-            elif isinstance(rel.native_side, NativeToManyRelationshipDescriptor):
-                _mapper = self.query_mapper_by_native_class(rel.native_side.destination.class_)
-                ep = self.endpoint_resolver.resolve_singleton_endpoint(mapper)
-                natives = rel.native_side.fetch_related(native)
-                for _native in natives:
-                    if _native is None:
-                        continue
-                    if not ctx.mark_traversed(_native):
-                        continue
-                    if ctx.mark_included(_native) and ctx.should_include(
-                        ctx, rel.native_side, rel.serde_side, mapper, _mapper, _native
-                    ):
-                        _builder = ctx.doc_builder.next_included()
-                        if ep is not None:
-                            _builder.links = LinksRepr(self_=ep.get_self())
-                        _mapper.build_serde(
-                            ctx=ctx,
-                            rctx=ctx,
-                            builder=_builder,
-                            native=_native,
-                        )
-                    if ctx.traverse_relationship is None or ctx.traverse_relationship(
-                        self, _mapper, rel, _native
-                    ):
-                        self._traverse_relationships(
-                            ctx=ctx,
-                            mapper=_mapper,
-                            native=_native,
-                        )
-
     def build_serde_single(
         self,
         native: Tss,
@@ -1696,7 +1881,18 @@ class MapperContext:
             typing.Callable[[RelationshipMapping], RelationshipPart]
         ] = None,
         traverse_relationship: typing.Optional[
-            typing.Callable[["MapperContext", Mapper, RelationshipMapping, typing.Any], bool]
+            typing.Callable[
+                [
+                    "MapperContext",
+                    NativeRelationshipDescriptor,
+                    ResourceRelationshipDescriptor,
+                    Mapper,
+                    Mapper,
+                    typing.Any,
+                    typing.Any,
+                ],
+                bool,
+            ]
         ] = None,
         include_filter: typing.Optional[IncludeFilter] = None,
     ) -> SingletonDocumentBuilder:
@@ -1709,18 +1905,9 @@ class MapperContext:
             include_filter=include_filter,
         )
         mapper = self.query_mapper_by_native_class(type(native))
-        ep = self.endpoint_resolver.resolve_singleton_endpoint(mapper)
-        if ep is not None:
-            builder.links = LinksRepr(self_=ep.get_self())
         mapper.build_serde(
             ctx=ctx,
-            rctx=ctx,
             builder=builder.data,
-            native=native,
-        )
-        self._traverse_relationships(
-            ctx=ctx,
-            mapper=mapper,
             native=native,
         )
         return builder
@@ -1736,21 +1923,23 @@ class MapperContext:
             typing.Callable[[RelationshipMapping], RelationshipPart]
         ] = None,
         traverse_relationship: typing.Optional[
-            typing.Callable[["MapperContext", Mapper, RelationshipMapping, typing.Any], bool]
+            typing.Callable[
+                [
+                    "MapperContext",
+                    NativeRelationshipDescriptor,
+                    ResourceRelationshipDescriptor,
+                    Mapper,
+                    Mapper,
+                    typing.Any,
+                    typing.Any,
+                ],
+                bool,
+            ]
         ] = None,
         include_filter: typing.Optional[IncludeFilter] = None,
     ) -> CollectionDocumentBuilder:
         builder = self._new_collection_document_builder()
         mapper = self.query_mapper_by_native_class(native_)
-        ep = self.endpoint_resolver.resolve_collection_endpoint(mapper)
-        if ep is not None:
-            builder.links = LinksRepr(
-                self_=ep.get_self(),
-                prev=ep.get_prev(),
-                next=ep.get_next(),
-                first=ep.get_first(),
-                last=ep.get_last(),
-            )
         ctx = self.create_to_serde_context(
             builder,
             select_attribute=select_attribute,
@@ -1758,20 +1947,11 @@ class MapperContext:
             traverse_relationship=traverse_relationship,
             include_filter=include_filter,
         )
-        for native in natives:
-            inner_builder = builder.next()
-            mapper.build_serde(
-                ctx=ctx,
-                rctx=ctx,
-                builder=inner_builder,
-                native=native,
-            )
-            self._traverse_relationships(
-                ctx=ctx,
-                mapper=mapper,
-                native=native,
-            )
-        builder.done()
+        mapper.build_serde_collection(
+            ctx=ctx,
+            builder=builder,
+            natives=natives,
+        )
         return builder
 
     Trss = typing.TypeVar("Trss")
@@ -1781,7 +1961,18 @@ class MapperContext:
         native: Trss,
         serde_rel_name: str,
         traverse_relationship: typing.Optional[
-            typing.Callable[["MapperContext", Mapper, RelationshipMapping, typing.Any], bool]
+            typing.Callable[
+                [
+                    "MapperContext",
+                    NativeRelationshipDescriptor,
+                    ResourceRelationshipDescriptor,
+                    Mapper,
+                    Mapper,
+                    typing.Any,
+                    typing.Any,
+                ],
+                bool,
+            ]
         ] = None,
         include_filter: typing.Optional[IncludeFilter] = None,
         parts: RelationshipPart = RelationshipPart.ALL,
@@ -1796,18 +1987,12 @@ class MapperContext:
         rm = mapper.get_relationship_mapping_by_serde_name(None, serde_rel_name)
         mapper.build_serde_to_one_relationship(
             ctx=ctx,
-            rctx=ctx,
             builder=builder,
             native=native,
             rm=rm,
             parts=parts,
         )
         assert builder.data is not None
-        self._traverse_relationships(
-            ctx=ctx,
-            mapper=mapper,
-            native=native,
-        )
         return builder
 
     Trsc = typing.TypeVar("Trsc")
@@ -1817,7 +2002,18 @@ class MapperContext:
         native: Trsc,
         serde_rel_name: str,
         traverse_relationship: typing.Optional[
-            typing.Callable[["MapperContext", Mapper, RelationshipMapping, typing.Any], bool]
+            typing.Callable[
+                [
+                    "MapperContext",
+                    NativeRelationshipDescriptor,
+                    ResourceRelationshipDescriptor,
+                    Mapper,
+                    Mapper,
+                    typing.Any,
+                    typing.Any,
+                ],
+                bool,
+            ]
         ] = None,
         include_filter: typing.Optional[IncludeFilter] = None,
         parts: RelationshipPart = RelationshipPart.ALL,
@@ -1832,16 +2028,10 @@ class MapperContext:
         )
         mapper.build_serde_to_many_relationship(
             ctx=ctx,
-            rctx=ctx,
             builder=builder,
             native=native,
             rm=rm,
             parts=parts,
-        )
-        self._traverse_relationships(
-            ctx=ctx,
-            mapper=mapper,
-            native=native,
         )
         return builder
 

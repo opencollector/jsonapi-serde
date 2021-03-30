@@ -61,6 +61,7 @@ from collections import OrderedDict
 
 from ..utils import UnspecifiedType
 from .models import (
+    URL,
     AttributeValue,
     CollectionDocumentRepr,
     DocumentReprBase,
@@ -120,6 +121,7 @@ class ReprRenderer:
     _render_decimal_as_str: bool = True
     _render_embedded_links: bool = False
     _assume_naive_timezone_as: typing.Optional[datetime.tzinfo] = None
+    _url_modifier: typing.Callable[[URL], URL]
 
     def _dict_factory(self, items: typing.Iterator[typing.Tuple[str, typing.Any]]):
         return OrderedDict(items)
@@ -246,15 +248,15 @@ class ReprRenderer:
     def _render_links(self, ctx: ReprRendererContext, repr_: LinksRepr) -> MutableJSONObject:
         retval: MutableJSONObject = {}
         if repr_.self_ is not None:
-            retval["self"] = repr_.self_
+            retval["self"] = str(self._url_modifier(repr_.self_))  # type: ignore
         if repr_.related is not None:
-            retval["related"] = repr_.related
+            retval["related"] = str(self._url_modifier(repr_.related))  # type: ignore
         if repr_.next is not None:
-            retval["next"] = repr_.next
+            retval["next"] = str(self._url_modifier(repr_.next))  # type: ignore
         if repr_.prev is not None:
-            retval["prev"] = repr_.prev
+            retval["prev"] = str(self._url_modifier(repr_.prev))  # type: ignore
         if repr_.last is not None:
-            retval["last"] = repr_.last
+            retval["last"] = str(self._url_modifier(repr_.last))  # type: ignore
         return retval
 
     def _render_source(self, ctx: ReprRendererContext, repr_: SourceRepr) -> MutableJSONObject:
@@ -370,7 +372,9 @@ class ReprRenderer:
         render_decimal_as_str: bool = True,
         render_embedded_links: bool = False,
         assume_naive_timezone_as: typing.Optional[datetime.tzinfo] = None,
+        url_modifier: typing.Optional[typing.Callable[[URL], URL]] = None,
     ):
         self._render_decimal_as_str = render_decimal_as_str
         self._render_embedded_links = render_embedded_links
         self._assume_naive_timezone_as = assume_naive_timezone_as
+        self._url_modifier = url_modifier or (lambda url: url)  # type: ignore

@@ -5,16 +5,15 @@ import sqlalchemy as sa  # type: ignore
 from sqlalchemy import orm  # type: ignore
 
 from ....interfaces import (
-    Endpoint,
     NativeDescriptor,
     NativeToManyRelationshipDescriptor,
     NativeToOneRelationshipDescriptor,
-    PaginatedEndpoint,
 )
 from ....mapper import (
     AttributeMapping,
     Direction,
     Mapper,
+    PaginatedEndpoint,
     RelationshipMapping,
     RelationshipPart,
 )
@@ -27,8 +26,7 @@ from ....models import (
     ResourceToManyRelationshipDescriptor,
     ResourceToOneRelationshipDescriptor,
 )
-from ....serde.models import AttributeValue, ResourceIdRepr, ResourceRepr, Source
-from ....tests.test_mapper import DummyEndpoint, DummyPaginatedEndpoint
+from ....serde.models import URL, AttributeValue, ResourceIdRepr, ResourceRepr, Source
 
 
 class ToSerdeContextForTesting(_ToSerdeContext):
@@ -47,46 +45,87 @@ class ToSerdeContextForTesting(_ToSerdeContext):
     def query_type_name_by_descriptor(self, descr: ResourceDescriptor) -> str:
         return descr.name
 
+    def resolve_singleton_endpoint(
+        self, mapper: Mapper, native: typing.Any
+    ) -> typing.Optional[URL]:
+        id_ = self.get_serde_identity_by_native(mapper, native)
+        return URL.from_string(f"/{mapper.resource_descr.name}/{id_}/")
+
+    def resolve_collection_endpoint(
+        self, mapper: Mapper, natives: typing.Iterable[typing.Any]
+    ) -> typing.Optional[PaginatedEndpoint]:
+        return PaginatedEndpoint(
+            self_=URL.from_string(f"/{mapper.resource_descr.name}/?page[number]=0"),
+            next=URL.from_string(f"/{mapper.resource_descr.name}/?page[number]=1"),
+        )
+
     def resolve_to_one_relationship_endpoint(
         self,
-        mapper: "Mapper",
+        mapper: Mapper,
         native_descr: NativeToOneRelationshipDescriptor,
         rel_descr: ResourceToOneRelationshipDescriptor,
         native: typing.Any,
-    ) -> Endpoint:
+    ) -> URL:
         parent_id = self.get_serde_identity_by_native(mapper, native)
         rel_id = self.get_serde_identity_by_native(
             self.query_mapper_by_native(native_descr.destination),
             native_descr.fetch_related(native),
         )
-        return DummyEndpoint(
-            self_=(
-                f"/{mapper.resource_descr.name}/{parent_id}/"
-                f"@{rel_descr.destination.name}/{rel_id}"
-            ),
+        return URL.from_string(
+            f"/{mapper.resource_descr.name}/{parent_id}/" f"@{rel_descr.destination.name}/{rel_id}"
         )
 
     def resolve_to_many_relationship_endpoint(
         self,
-        mapper: "Mapper",
+        mapper: Mapper,
         native_descr: NativeToManyRelationshipDescriptor,
         rel_descr: ResourceToManyRelationshipDescriptor,
         native: typing.Any,
     ) -> PaginatedEndpoint:
         parent_id = self.get_serde_identity_by_native(mapper, native)
-        return DummyPaginatedEndpoint(
-            self_=(
+        return PaginatedEndpoint(
+            self_=URL.from_string(
                 f"/{mapper.resource_descr.name}/{parent_id}/"
-                f"@{rel_descr.destination.name}/?page=0"
+                f"@{rel_descr.destination.name}/?page[number]=0"
             ),
-            next=(
+            next=URL.from_string(
                 f"/{mapper.resource_descr.name}/{parent_id}/"
-                f"@{rel_descr.destination.name}/?page=1"
+                f"@{rel_descr.destination.name}/?page[number]=1"
             ),
         )
 
     def query_mapper_by_native(self, descr: NativeDescriptor) -> Mapper:
         return self.native_to_mapper_map[descr]
+
+    def to_one_relationship_visited(
+        self,
+        native_side: NativeToOneRelationshipDescriptor,
+        serde_side: ResourceToOneRelationshipDescriptor,
+        mapper: Mapper,
+        dest_mapper: Mapper,
+        native: typing.Any,
+        dest_available: bool,
+        dest: typing.Optional[typing.Any],
+    ):
+        pass
+
+    def to_many_relationship_visited(
+        self,
+        native_side: NativeToManyRelationshipDescriptor,
+        serde_side: ResourceToManyRelationshipDescriptor,
+        mapper: Mapper,
+        dest_mapper: Mapper,
+        native: typing.Any,
+        dest: typing.Optional[typing.Iterable[typing.Any]],
+    ):
+        pass
+
+    def native_visited(
+        self,
+        mapper: Mapper,
+        native: typing.Any,
+    ):
+        pass
 
     def __init__(self, native_to_mapper_map: typing.Mapping[NativeDescriptor, Mapper]):
         self.native_to_mapper_map = native_to_mapper_map

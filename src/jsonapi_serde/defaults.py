@@ -7,15 +7,14 @@ import typing
 from .declarative import ConverterFactory
 from .exceptions import ConversionError, UnknownResourceTypeError
 from .interfaces import (
-    Endpoint,
     NativeAttributeDescriptor,
     NativeToManyRelationshipDescriptor,
     NativeToOneRelationshipDescriptor,
-    PaginatedEndpoint,
 )
 from .mapper import (
     EndpointResolver,
     Mapper,
+    PaginatedEndpoint,
     SerdeTypeResolver,
     ToNativeContext,
     ToSerdeContext,
@@ -26,7 +25,7 @@ from .models import (
     ResourceToManyRelationshipDescriptor,
     ResourceToOneRelationshipDescriptor,
 )
-from .serde.models import AttributeValue, Source
+from .serde.models import URL, AttributeValue, Source
 from .serde.types import JSONScalar
 from .serde.utils import JsonicScalar, PyTypedJsonicDataConverter
 
@@ -51,24 +50,30 @@ class DefaultSerdeTypeResolverImpl(SerdeTypeResolver):
 
 
 class DefaultEndpointResolverImpl(EndpointResolver):
-    def resolve_singleton_endpoint(self, mapper: Mapper) -> typing.Optional[Endpoint]:
+    def resolve_singleton_endpoint(
+        self, ctx: ToSerdeContext, mapper: "Mapper", native: typing.Any
+    ) -> typing.Optional[URL]:
         return None
 
-    def resolve_collection_endpoint(self, mapper: Mapper) -> typing.Optional[PaginatedEndpoint]:
+    def resolve_collection_endpoint(
+        self, ctx: ToSerdeContext, mapper: "Mapper", natives: typing.Iterable[typing.Any]
+    ) -> typing.Optional[PaginatedEndpoint]:
         return None
 
     def resolve_to_one_relationship_endpoint(
         self,
-        mapper: Mapper,
+        ctx: ToSerdeContext,
+        mapper: "Mapper",
         native_descr: NativeToOneRelationshipDescriptor,
         rel_descr: ResourceToOneRelationshipDescriptor,
         native: typing.Any,
-    ) -> typing.Optional[Endpoint]:
+    ) -> typing.Optional[URL]:
         return None
 
     def resolve_to_many_relationship_endpoint(
         self,
-        mapper: Mapper,
+        ctx: ToSerdeContext,
+        mapper: "Mapper",
         native_descr: NativeToManyRelationshipDescriptor,
         rel_descr: ResourceToManyRelationshipDescriptor,
         native: typing.Any,
