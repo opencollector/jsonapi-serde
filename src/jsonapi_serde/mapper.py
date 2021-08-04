@@ -93,34 +93,70 @@ class PaginatedEndpoint:
 
 class RelationshipPart(enum.IntEnum):
     NONE = 0
+    """Indicates nothing should be selected"""
     LINKS = 1
+    """Indicates only links to the resources needs to be included"""
     DATA = 2
+    """Indicates only data to the resource needs to be included"""
     ALL = -1
+    """Indicates everything needs to be included"""
 
 
 class ToSerdeContext(metaclass=abc.ABCMeta):
     @abc.abstractmethod
     def select_attribute(self, mapping: "AttributeMapping") -> bool:
+        """
+        Determines the given attribute needs to be included in the response
+
+        :param AttributeMapping mapping: an :py:class:`AttributeMapping` object that describes an attribute.
+        :return: A boolean value.
+        """
         ...  # pragma: nocover
 
     @abc.abstractmethod
     def select_relationship(self, mapping: "RelationshipMapping") -> RelationshipPart:
+        """
+        Determines the given relatioship needs to be included in the response
+
+        :param RelationshipMapping mapping: an :py:class:`RelationshipMapping` object that describes a relationship.
+        :return: A RelationshipMapping value.
+        """
         ...  # pragma: nocover
 
     @abc.abstractmethod
     def query_type_name_by_descriptor(self, descr: ResourceDescriptor) -> str:
+        """
+        Returns a resource name that corresponds to a resource descriptor.
+
+        :param ResourceDescriptor descr: a :py:class:`ResourceDescriptor`.
+        :return: A string representation of the resource name.
+        """
         ...  # pragma: nocover
 
     @abc.abstractmethod
     def resolve_singleton_endpoint(
         self, mapper: "Mapper", native: typing.Any
     ) -> typing.Optional[URL]:
+        """
+        Resolves a URL for a single resource that is described by a mapper and a native object.
+        Returns :py:const:`None` If no URL is designated.
+        :param Mapper mapper: a mapper object that corresponds to a resource.
+        :param Any native: a native object.
+        :return: a URL for the resource or :py:const:`None`.
+        """
         ...  # pragma: nocover
 
     @abc.abstractmethod
     def resolve_collection_endpoint(
         self, mapper: "Mapper", natives: typing.Iterable[typing.Any]
     ) -> typing.Optional[PaginatedEndpoint]:
+        """
+        Resolves URLs for a collection of resources that are described by a mapper and a native object.
+        Returns :py:const:`None` If no URL is designated.
+        :param Mapper mapper: a mapper object that corresponds to a resource.
+        :param Iterable[Any] native: an iterable of native objects.
+        :return: a :py:class:`PaginatedEndpoint` object that stores a set of URLs.
+        """
         ...  # pragma: nocover
 
     @abc.abstractmethod
@@ -131,6 +167,16 @@ class ToSerdeContext(metaclass=abc.ABCMeta):
         rel_descr: ResourceToOneRelationshipDescriptor,
         native: typing.Any,
     ) -> typing.Optional[URL]:
+        """
+        Resolves a URL for a single relationship to a resource that is described by a mapper,
+        relationship descriptors of both sides, and a native object.
+        Returns :py:const:`None` If no URL is designated.
+        :param Mapper mapper: a mapper object that corresponds to a resource.
+        :param NativeToOneRelationshipDescriptor native_descr: a native side relationship descriptor.
+        :param ResourceToOneRelationshipDescriptor rel_descr: a JSON-API side relationship descriptor.
+        :param Any native: a native object that holds the relationship (not the related one.)
+        :return: a URL for the resource or :py:const:`None`.
+        """
         ...  # pragma: nocover
 
     @abc.abstractmethod
@@ -141,14 +187,37 @@ class ToSerdeContext(metaclass=abc.ABCMeta):
         rel_descr: ResourceToManyRelationshipDescriptor,
         native: typing.Any,
     ) -> typing.Optional[PaginatedEndpoint]:
+        """
+        Resolves a URL for a single relationship to a resource that is described by a mapper,
+        relationship descriptors of both sides, and a native object.
+        Returns :py:const:`None` If no URL is designated.
+        :param Mapper mapper: a mapper object that corresponds to a resource.
+        :param NativeToManyRelationshipDescriptor native_descr: a native side relationship descriptor.
+        :param ResourceToManyRelationshipDescriptor rel_descr: a JSON-API side relationship descriptor.
+        :param Any native: a native object that holds the relationship (not the related ones.)
+        :return: a URL for the resource or :py:const:`None`.
+        """
         ...  # pragma: nocover
 
     @abc.abstractmethod
     def query_mapper_by_native(self, descr: NativeDescriptor) -> "Mapper":
+        """
+        Resolves a mapper from the specified native-side resource descriptor.
+        The returned mapper has its :py:attr:`native_descr` set to the object identical to the argument.
+        :param NativeDescriptor descr: a :py:class:`NativeDescriptor` object.
+        :return: a :py:class:`Mapper` object that corresponds to the descriptor.
+        """
         ...  # pragma: nocover
 
     @abc.abstractmethod
     def get_serde_identity_by_native(self, mapper: "Mapper", native: typing.Any) -> str:
+        """
+        Build a string representation of a JSON-API identity of the given native object for use in
+        serde.
+        :param Mapper mapper: a mapper object that maps the native object.
+        :param Any native: a native object.
+        :return: a string that represents a JSON-API identity.
+        """
         ...  # pragma: nocover
 
     @abc.abstractmethod
@@ -161,7 +230,10 @@ class ToSerdeContext(metaclass=abc.ABCMeta):
         native: typing.Any,
         dest_available: bool,
         dest: typing.Optional[typing.Any],
-    ):
+    ) -> None:
+        """
+        Called when a one-to-one relationship is visited during serialization.
+        """
         ...  # pragma: nocover
 
     @abc.abstractmethod
@@ -173,7 +245,10 @@ class ToSerdeContext(metaclass=abc.ABCMeta):
         dest_mapper: "Mapper",
         native: typing.Any,
         dest: typing.Optional[typing.Iterable[typing.Any]],
-    ):
+    ) -> None:
+        """
+        Called when a one-to-many relationship is visited during serialization.
+        """
         ...  # pragma: nocover
 
     @abc.abstractmethod
@@ -181,7 +256,10 @@ class ToSerdeContext(metaclass=abc.ABCMeta):
         self,
         mapper: "Mapper",
         native: typing.Any,
-    ):
+    ) -> None:
+        """
+        Called every time when a native object is visited during serialization.
+        """
         ...  # pragma: nocover
 
 

@@ -16,9 +16,9 @@ class MutatorDescriptor(metaclass=abc.ABCMeta):
 
 class NativeAttributeDescriptor(metaclass=abc.ABCMeta):
     """
-    A ``NativeAttributeDescriptor`` describes an attribute of a native object,
+    A :py:class:`NativeAttributeDescriptor` describes an attribute of a native object,
     which will end up being associated to some resource attribute descriptor(s)
-    by ``Mapper``.
+    by :py:class:`Mapper`.
 
     This class has nothing to do with Python's sense of "descriptors."
     """
@@ -63,12 +63,12 @@ class NativeAttributeDescriptor(metaclass=abc.ABCMeta):
 
 class NativeRelationshipDescriptor(metaclass=abc.ABCMeta):
     """
-    A ``NativeRelationshipDescriptor`` describes a relationship of two native objects,
+    A :py:class:`NativeRelationshipDescriptor` describes a relationship of two native objects,
     which will end up being associated to a resource relationship descriptor
-    by ``Mapper``.  This is a super-interfaces of the following interfaces:
+    by :py:class:`Mapper`.  This is a super-interfaces of the following interfaces:
 
-    * ``NativeToOneRelationshipDescriptor``
-    * ``NativeToManyRelationshipDescriptor``
+    * :py:class:`NativeToOneRelationshipDescriptor`
+    * :py:class:`NativeToManyRelationshipDescriptor`
 
     This class has nothing to do with Python's sense of "descriptors."
     """
@@ -86,17 +86,17 @@ class NativeRelationshipDescriptor(metaclass=abc.ABCMeta):
     @abc.abstractmethod
     def destination(self) -> "NativeDescriptor":
         """
-        Returns the ``NativeDescriptor`` object that describes the other side of
+        Returns the :py:class:`NativeDescriptor` object that describes the other side of
         the relationship.
 
-        :return: The ``NativeDescriptor`` object for the other side of the relationship.
+        :return: The :py:class:`NativeDescriptor` object for the other side of the relationship.
         """
         ...  # pragma: nocover
 
 
 class NativeToOneRelationshipDescriptor(NativeRelationshipDescriptor):
     """
-    A ``NativeRelationshipDescriptor`` describes a one-to-one relationship
+    A :py:class:`NativeRelationshipDescriptor` describes a one-to-one relationship
     between two native objects.
     """
 
@@ -114,7 +114,7 @@ class NativeToOneRelationshipDescriptor(NativeRelationshipDescriptor):
 
 class NativeToManyRelationshipDescriptor(NativeRelationshipDescriptor):
     """
-    A ``NativeRelationshipDescriptor`` describes a one-to-many relationship
+    A :py:class:`NativeRelationshipDescriptor` describes a one-to-many relationship
     between two native objects.
     """
 
@@ -132,7 +132,7 @@ class NativeToManyRelationshipDescriptor(NativeRelationshipDescriptor):
 
 class MutationContext(metaclass=abc.ABCMeta):
     """
-    A ``MutationContext`` denotes a context passed over the call chains between
+    A :py:class:`MutationContext` denotes a context passed over the call chains between
     the mapper and native object builders accompanied by a method that depends
     on the site state (database connections etc.)
     """
@@ -140,7 +140,7 @@ class MutationContext(metaclass=abc.ABCMeta):
 
 class NativeToOneRelationshipBuilder(metaclass=abc.ABCMeta):
     """
-    A ``NativeToOneRelationshipBuilder`` constitutes the series of the "builder"
+    A :py:class:`NativeToOneRelationshipBuilder` constitutes the series of the "builder"
     objects. It is responsible for building a one-to-one relationship
     between two native objects.
     """
@@ -164,7 +164,7 @@ class NativeToOneRelationshipBuilder(metaclass=abc.ABCMeta):
 
 class NativeToOneRelationshipManipulator(metaclass=abc.ABCMeta):
     """
-    A ``NativeToOneRelationshipManipulator`` constitutes the series of the "builder"
+    A :py:class:`NativeToOneRelationshipManipulator` constitutes the series of the "builder"
     objects. It is responsible for modifying a one-to-one relationship
     between two native objects.
     """
@@ -182,7 +182,7 @@ class NativeToOneRelationshipManipulator(metaclass=abc.ABCMeta):
         Sets the builder to not having the counterpart native object.
 
         :param Any id: A native identifier.
-        :return: a Deferred object that will get its value set to a boolean value
+        :return: a :py:class:`Deferred` object that will get its value set to a boolean value
                  that indicates if the manipulation is successfully done.
         """
         ...  # pragma: nocover
@@ -193,7 +193,7 @@ class NativeToOneRelationshipManipulator(metaclass=abc.ABCMeta):
         Sets the builder so that it will yield a counterpart native object.
 
         :param Any id: A native identifier.
-        :return: a Deferred object that will get its value set to a boolean value
+        :return: a :py:class:`Deferred` object that will get its value set to a boolean value
                  that indicates if the manipulation is successfully done.
         """
         ...  # pragma: nocover
@@ -201,7 +201,7 @@ class NativeToOneRelationshipManipulator(metaclass=abc.ABCMeta):
 
 class NativeToManyRelationshipBuilder(metaclass=abc.ABCMeta):
     """
-    A ``NativeToManyRelationshipBuilder`` constitutes the series of the "builder"
+    A :py:class:`NativeToManyRelationshipBuilder` constitutes the series of the "builder"
     objects. It is responsible for modifying a one-to-many relationship
     from a single native object to multiple native objects.
     """
@@ -216,7 +216,7 @@ class NativeToManyRelationshipBuilder(metaclass=abc.ABCMeta):
 
 class NativeToManyRelationshipManipulator(metaclass=abc.ABCMeta):
     """
-    A ``NativeToManyRelationshipManipulator`` represents a batch of
+    A :py:class:`NativeToManyRelationshipManipulator` represents a batch of
     operations on a one-to-many relationship from a single native object
     to multiple native objects.
     """
@@ -227,7 +227,7 @@ class NativeToManyRelationshipManipulator(metaclass=abc.ABCMeta):
         Add a new relationship.
 
         :param Any id: A native identifier.
-        :return: a Deferred object that will get its value set to a boolean value
+        :return: a :py:class:`Deferred` object that will get its value set to a boolean value
                  that indicates if the manipulation is successfully done.
         """
         ...  # pragma: nocover
@@ -238,7 +238,7 @@ class NativeToManyRelationshipManipulator(metaclass=abc.ABCMeta):
         Remove an existing relationship.
 
         :param Any id: A native identifier.
-        :return: a Deferred object that will get its value set to a boolean value
+        :return: a :py:class:`Deferred` object that will get its value set to a boolean value
                  that indicates if the manipulation is successfully done.
         """
         ...  # pragma: nocover
@@ -246,14 +246,14 @@ class NativeToManyRelationshipManipulator(metaclass=abc.ABCMeta):
 
 class NativeBuilder(metaclass=abc.ABCMeta):
     """
-    A ``NativeBuilder`` constitutes the series of the "builder" objects.
+    A :py:class:`NativeBuilder` constitutes the series of the "builder" objects.
     It is responsible for building a single native object.
     """
 
     @abc.abstractmethod
     def __setitem__(self, descr: NativeAttributeDescriptor, v: typing.Any) -> None:
         """
-        Sets the attribute described by the specified ``NativeAttributeDescriptor`` to the given value.
+        Sets the attribute described by the specified :py:class:`NativeAttributeDescriptor` to the given value.
 
         :param NativeAttributeDescriptor descr: The attribute descriptor that represents the attribute.
         :param Any v: The value to set.
@@ -278,7 +278,7 @@ class NativeBuilder(metaclass=abc.ABCMeta):
         self, descr: NativeToOneRelationshipDescriptor
     ) -> NativeToOneRelationshipBuilder:
         """
-        Returns a ``NativeToOneRelationshipBuilder`` to build a one-to-one relationship.
+        Returns a :py:class:`NativeToOneRelationshipBuilder` to build a one-to-one relationship.
 
         :param NativeToOneRelationshipDescriptor descr: The relationship descriptor that represents the relationship.
         :return: The relationship builder.
@@ -290,7 +290,7 @@ class NativeBuilder(metaclass=abc.ABCMeta):
         self, descr: NativeToManyRelationshipDescriptor
     ) -> NativeToManyRelationshipBuilder:
         """
-        Returns a ``NativeToManyRelationshipBuilder`` to build a one-to-many relationship.
+        Returns a :py:class:`NativeToManyRelationshipBuilder` to build a one-to-many relationship.
 
         :param NativeToManyRelationshipDescriptor descr: The relationship descriptor that represents the relationship.
         :return: The relationship builder.
@@ -302,7 +302,7 @@ class NativeBuilder(metaclass=abc.ABCMeta):
         """
         Returns a native object built.
 
-        :param MutationContext ctx: A ``MutationContext`` for use in the building process.
+        :param MutationContext ctx: A :py:class:`MutationContext` for use in the building process.
         :return: The native object built.
         """
         ...  # pragma: nocover
@@ -314,7 +314,7 @@ class NativeUpdater(NativeBuilder):
         self, descr: NativeToOneRelationshipDescriptor
     ) -> NativeToOneRelationshipManipulator:
         """
-        Returns a ``NativeToOneRelationshipManipulator`` to manipulate a one-to-one relationship.
+        Returns a :py:class:`NativeToOneRelationshipManipulator` to manipulate a one-to-one relationship.
 
         :param NativeToOneRelationshipDescriptor descr: The relationship descriptor that represents the relationship.
         :return: The relationship manipulator.
@@ -326,7 +326,7 @@ class NativeUpdater(NativeBuilder):
         self, descr: NativeToManyRelationshipDescriptor
     ) -> NativeToManyRelationshipManipulator:
         """
-        Returns a ``NativeToManyRelationshipManipulator`` to manipulator a one-to-many relationship.
+        Returns a :py:class:`NativeToManyRelationshipManipulator` to manipulator a one-to-many relationship.
 
         :param NativeToManyRelationshipDescriptor descr: The relationship descriptor that represents the relationship.
         :return: The relationship manipulator.
@@ -336,7 +336,7 @@ class NativeUpdater(NativeBuilder):
 
 class NativeDescriptor(metaclass=abc.ABCMeta):
     """
-    A ``NativeDescriptor`` denotes the properties of a native object.
+    A :py:class:`NativeDescriptor` denotes the properties of a native object.
     """
 
     @property
@@ -351,34 +351,34 @@ class NativeDescriptor(metaclass=abc.ABCMeta):
     @abc.abstractmethod
     def new_builder(self) -> NativeBuilder:
         """
-        Returns a new ``NativeBuilder`` object for building a native objects.
+        Returns a new :py:class:`NativeBuilder` object for building a native objects.
 
-        :return: A new ``NativeBuilder`` instance.
+        :return: A new :py:class:`NativeBuilder` instance.
         """
 
     @abc.abstractmethod
     def new_updater(self, target: typing.Any) -> NativeUpdater:
         """
-        Returns a new ``NativeUpdater`` object for updating a native objects.
+        Returns a new :py:class:`NativeUpdater` object for updating a native objects.
 
-        :return: A new ``NativeUpdater`` instance.
+        :return: A new :py:class:`NativeUpdater` instance.
         """
 
     @property
     @abc.abstractmethod
     def attributes(self) -> typing.Sequence[NativeAttributeDescriptor]:
         """
-        Returns descriptors for the attributes the native object possesses
+        Returns descriptors for the attributes the native object possesses.
 
-        :return: the sequence of ``NativeAttributeDescriptor`.
+        :return: the sequence of :py:class:`NativeAttributeDescriptor`.
         """
 
     @abc.abstractmethod
     def get_attribute_by_name(self, name: str) -> NativeAttributeDescriptor:
         """
-        Returns an attribute descriptor whose name is ``name``
+        Returns an attribute descriptor whose name is ``name``.
 
-        :return: A ``NativeAttributeDescriptor` instance.
+        :return: A :py:class:`NativeAttributeDescriptor` instance.
         """
 
     @property
@@ -387,15 +387,15 @@ class NativeDescriptor(metaclass=abc.ABCMeta):
         """
         Returns descriptors for the relationships the native object has.
 
-        :return: the sequence of ``NativeRelationshipDescriptor``.
+        :return: the sequence of :py:class:`NativeRelationshipDescriptor`.
         """
 
     @abc.abstractmethod
     def get_relationship_by_name(self, name: str) -> NativeRelationshipDescriptor:
         """
-        Returns a relationship descriptor whose name is ``name``
+        Returns a relationship descriptor whose name is ``name``.
 
-        :return: A ``NativeRelationshipDescriptor` instance.
+        :return: A :py:class:`NativeRelationshipDescriptor` instance.
         """
 
     @abc.abstractmethod
@@ -403,5 +403,5 @@ class NativeDescriptor(metaclass=abc.ABCMeta):
         """
         Retrieves the identity for the target native object.
 
-        :returns: An implementation-dependent identifier for the native object.
+        :return: An implementation-dependent identifier for the native object.
         """

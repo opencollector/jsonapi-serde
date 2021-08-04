@@ -12,6 +12,7 @@ Welcome to jsonapi-serde's documentation!
 
    serde
    ifaces
+   deferred
    impl_sqlalchemy
 
 
