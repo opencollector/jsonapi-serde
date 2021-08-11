@@ -117,7 +117,7 @@ class ToSerdeContextForTesting(_ToSerdeContext):
         dest_available: bool,
         dest: typing.Optional[typing.Any],
     ):
-        pass
+        return
 
     def to_many_relationship_visited(
         self,
@@ -128,14 +128,23 @@ class ToSerdeContextForTesting(_ToSerdeContext):
         native: typing.Any,
         dest: typing.Optional[typing.Iterable[typing.Any]],
     ):
-        pass
+        return
+
+    def native_visited_pre(
+        self,
+        mapper: Mapper,
+        native: typing.Any,
+        as_ref_ref: bool,
+    ):
+        return
 
     def native_visited(
         self,
         mapper: Mapper,
         native: typing.Any,
+        as_ref_ref: bool,
     ):
-        pass
+        return
 
     def __init__(self, native_to_mapper_map: typing.Mapping[NativeDescriptor, Mapper]):
         self.native_to_mapper_map = native_to_mapper_map

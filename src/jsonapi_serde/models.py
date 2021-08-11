@@ -103,7 +103,13 @@ class ResourceRelationshipDescriptor(ResourceMemberDescriptor):
 
 class ResourceToOneRelationshipDescriptor(ResourceRelationshipDescriptor):
     type = RelationshipType.TO_ONE
+    """
+    Always set to :py:class:`RelationshipType`.``TO_ONE``
+    """
     allow_null: bool
+    """
+    Set to :py:const:`True` if the relationship this descriptor represents can be nullified.
+    """
 
     def __init__(
         self,
@@ -121,7 +127,13 @@ class ResourceToOneRelationshipDescriptor(ResourceRelationshipDescriptor):
 
 class ResourceToManyRelationshipDescriptor(ResourceRelationshipDescriptor):
     type = RelationshipType.TO_MANY
+    """
+    Always set to :py:class:`RelationshipType`.``TO_MANY``
+    """
     allow_empty: bool
+    """
+    Set to :py:const:`True` if the relationship this descriptor represents can be empty.
+    """
 
     def __init__(
         self,
@@ -138,20 +150,61 @@ class ResourceToManyRelationshipDescriptor(ResourceRelationshipDescriptor):
 
 
 class ResourceDescriptor:
+    """
+    A :py:class:`ResourceDescriptor` holds information about a JSON-API resource.
+
+    :param str name: The name of the resource.
+    :param Iterable[ResourceAttributeDescriptor] attributes: The descriptors for the attributes the resource holds.
+    :param Iterable[ResourceRelationshipDescriptor] relationships: The descriptors for the relationships the resource has.
+    """
+
     name: str
-    attributes: typing.Mapping[str, ResourceAttributeDescriptor]
-    relationships: typing.Mapping[str, ResourceRelationshipDescriptor]
+    """
+    The name of the resource.
+    """
+    _attributes: typing.MutableMapping[str, ResourceAttributeDescriptor]
+    _relationships: typing.MutableMapping[str, ResourceRelationshipDescriptor]
+
+    @property
+    def attributes(self) -> typing.Mapping[str, ResourceAttributeDescriptor]:
+        """
+        The mapping of attribute names to :py:class:`ResourceAttributeDescriptor`s.
+        """
+        return self._attributes
+
+    @property
+    def relationships(self) -> typing.Mapping[str, ResourceRelationshipDescriptor]:
+        """
+        The mapping of relationship names to :py:class:`ResourceRelationshipDescriptor`s.
+        """
+        return self._relationships
+
+    def add_attribute(self, attr: ResourceAttributeDescriptor) -> None:
+        """
+        Add an attribute to the resource descriptor.
+
+        :param ResourceAttributeDescriptor attr: the attribute to add.
+        """
+        self._attributes[assert_not_none(attr.name)] = attr.bind(self)
+
+    def add_relationship(self, rel: ResourceRelationshipDescriptor) -> None:
+        """
+        Add an relationship to the resource descriptor.
+
+        :param ResourceRelationshipDescriptor rel: the relationship to add.
+        """
+        self._relationships[assert_not_none(rel.name)] = rel.bind(self)
 
     def __init__(
         self,
         name: str,
-        attributes: typing.Iterable[ResourceAttributeDescriptor],
-        relationships: typing.Iterable[ResourceRelationshipDescriptor],
-    ):
+        attributes: typing.Iterable[ResourceAttributeDescriptor] = (),
+        relationships: typing.Iterable[ResourceRelationshipDescriptor] = (),
+    ) -> None:
         self.name = name
-        self.attributes = OrderedDict(
+        self._attributes = OrderedDict(
             ((assert_not_none(attr.name), attr.bind(self)) for attr in attributes)
         )
-        self.relationships = OrderedDict(
+        self._relationships = OrderedDict(
             ((assert_not_none(rel.name), rel.bind(self)) for rel in relationships)
         )

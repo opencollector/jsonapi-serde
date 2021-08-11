@@ -6,12 +6,14 @@ import pytest
 from ..exceptions import ImmutableAttributeError
 from ..interfaces import (
     NativeDescriptor,
+    NativeRelationshipDescriptor,
     NativeToManyRelationshipDescriptor,
     NativeToOneRelationshipDescriptor,
 )
 from ..models import (
     ResourceAttributeDescriptor,
     ResourceDescriptor,
+    ResourceRelationshipDescriptor,
     ResourceToManyRelationshipDescriptor,
     ResourceToOneRelationshipDescriptor,
 )
@@ -53,25 +55,53 @@ class Foo:
     bazs: typing.Optional[typing.Sequence["Baz"]] = None
     id: typing.Optional[int] = None
 
+    def __post_init__(self) -> None:
+        if self.bar is not None:
+            self.bar.foo = self
+        if self.bazs is not None:
+            for baz in self.bazs:
+                baz.foo = self
+
+    def __hash__(self):
+        return id(self)
+
 
 @dataclasses.dataclass
 class Bar:
     d: typing.Optional[str]
     e: int
+    foo: typing.Optional["Foo"] = None
+    baz: typing.Optional["Baz"] = None
     id: typing.Optional[int] = None
+
+    def __post_init__(self) -> None:
+        if self.baz is not None:
+            self.baz.bar = self
+
+    def __hash__(self):
+        return id(self)
 
 
 @dataclasses.dataclass
 class Baz:
     f: int
     g: str
+    foo: typing.Optional[Foo] = None
+    bar: typing.Optional[Bar] = None
     id: typing.Optional[int] = None
 
+    def __post_init__(self) -> None:
+        if self.bar is not None:
+            self.bar.baz = self
 
-class TestMapper:
+    def __hash__(self):
+        return id(self)
+
+
+class TestMapperBase:
     @pytest.fixture
-    def bar_resource_descr(self) -> ResourceDescriptor:
-        return ResourceDescriptor(
+    def bar_resource_descr(self, baz_resource_descr) -> ResourceDescriptor:
+        bar_resource_descr = ResourceDescriptor(
             name="bar",
             attributes=[
                 ResourceAttributeDescriptor(
@@ -87,18 +117,47 @@ class TestMapper:
                     required_on_creation=True,
                 ),
             ],
-            relationships=[],
+            relationships=[
+                ResourceToOneRelationshipDescriptor(
+                    baz_resource_descr,
+                    "baz",
+                    allow_null=True,
+                ),
+            ],
         )
+        baz_resource_descr.add_relationship(
+            ResourceToOneRelationshipDescriptor(
+                bar_resource_descr,
+                "bar",
+                allow_null=True,
+            ),
+        )
+        return bar_resource_descr
 
     @pytest.fixture
-    def bar_native_descr(self) -> PlainNativeDescriptor:
-        return PlainNativeDescriptor(
+    def bar_native_descr(self, baz_native_descr) -> PlainNativeDescriptor:
+        bar_native_descr = PlainNativeDescriptor(
             Bar,
             attributes=[
                 PlainNativeAttributeDescriptor("d", str, True),
                 PlainNativeAttributeDescriptor("e", int, False),
             ],
+            relationships=[
+                PlainNativeToOneRelationshipDescriptor(
+                    baz_native_descr,
+                    "baz",
+                    allow_null=True,
+                ),
+            ],
         )
+        baz_native_descr._relationships.append(
+            PlainNativeToOneRelationshipDescriptor(
+                bar_native_descr,
+                "bar",
+                allow_null=True,
+            ),
+        )
+        return bar_native_descr
 
     @pytest.fixture
     def baz_resource_descr(self):
@@ -132,10 +191,10 @@ class TestMapper:
         )
 
     @pytest.fixture
-    def resource_descr(
+    def foo_resource_descr(
         self, bar_resource_descr: ResourceDescriptor, baz_resource_descr: ResourceDescriptor
     ):
-        return ResourceDescriptor(
+        foo_resource_descr = ResourceDescriptor(
             name="foo",
             attributes=[
                 ResourceAttributeDescriptor(
@@ -159,14 +218,36 @@ class TestMapper:
                 ),
             ],
             relationships=[
-                ResourceToOneRelationshipDescriptor(bar_resource_descr, "bar", allow_null=True),
-                ResourceToManyRelationshipDescriptor(baz_resource_descr, "bazs"),
+                ResourceToOneRelationshipDescriptor(
+                    bar_resource_descr,
+                    "bar",
+                    allow_null=True,
+                ),
+                ResourceToManyRelationshipDescriptor(
+                    baz_resource_descr,
+                    "bazs",
+                ),
             ],
         )
+        bar_resource_descr.add_relationship(
+            ResourceToOneRelationshipDescriptor(
+                foo_resource_descr,
+                "foo",
+                allow_null=True,
+            ),
+        )
+        baz_resource_descr.add_relationship(
+            ResourceToOneRelationshipDescriptor(
+                foo_resource_descr,
+                "foo",
+                allow_null=True,
+            ),
+        )
+        return foo_resource_descr
 
     @pytest.fixture
-    def native_descr(self, bar_native_descr, baz_native_descr):
-        return PlainNativeDescriptor(
+    def foo_native_descr(self, bar_native_descr, baz_native_descr):
+        foo_native_descr = PlainNativeDescriptor(
             class_=Foo,
             attributes=[
                 PlainNativeAttributeDescriptor("a", str, False),
@@ -174,13 +255,51 @@ class TestMapper:
                 PlainNativeAttributeDescriptor("c", int, False),
             ],
             relationships=[
-                PlainNativeToOneRelationshipDescriptor(bar_native_descr, "bar", allow_null=True),
-                PlainNativeToManyRelationshipDescriptor(baz_native_descr, "bazs"),
+                PlainNativeToOneRelationshipDescriptor(
+                    bar_native_descr,
+                    "bar",
+                    allow_null=True,
+                ),
+                PlainNativeToManyRelationshipDescriptor(
+                    baz_native_descr,
+                    "bazs",
+                ),
             ],
         )
+        bar_native_descr._relationships.append(
+            PlainNativeToOneRelationshipDescriptor(
+                foo_native_descr,
+                "foo",
+                allow_null=True,
+            ),
+        )
+        baz_native_descr._relationships.append(
+            PlainNativeToOneRelationshipDescriptor(
+                foo_native_descr,
+                "foo",
+                allow_null=True,
+            ),
+        )
+        return foo_native_descr
 
     @pytest.fixture
-    def target(self, resource_descr, native_descr, identity_mapping_pair):
+    def identity_mapping_pair(self):
+        from ..mapper import ToNativeContext, ToSerdeContext
+
+        def to_serde_identity_mapping(ctx: ToSerdeContext, value: typing.Any) -> AttributeValue:
+            return typing.cast(AttributeValue, value)
+
+        def to_native_identity_mapping(
+            ctx: ToNativeContext, source: Source, value: AttributeValue
+        ) -> typing.Any:
+            return value
+
+        return to_serde_identity_mapping, to_native_identity_mapping
+
+
+class TestMapper(TestMapperBase):
+    @pytest.fixture
+    def foo_mapper(self, foo_resource_descr, foo_native_descr, identity_mapping_pair):
         from ..mapper import (
             Direction,
             Mapper,
@@ -189,26 +308,33 @@ class TestMapper:
         )
 
         return Mapper[Foo](
-            resource_descr,
-            native_descr,
+            foo_resource_descr,
+            foo_native_descr,
             attribute_mappings=[
                 ToOneAttributeMapping[Foo](
-                    serde_side=resource_descr.attributes[na.name],
+                    serde_side=foo_resource_descr.attributes[na.name],
                     native_side=na,
                     to_serde_factory=identity_mapping_pair[0],
                     to_native_factory=identity_mapping_pair[1],
                     direction=Direction.BIDI,
                 )
-                for na in native_descr.attributes
+                for na in foo_native_descr.attributes
             ],
             relationship_mappings=[
-                RelationshipMapping(resource_descr.relationships[nr.name], nr)
-                for nr in native_descr.relationships
+                RelationshipMapping(foo_resource_descr.relationships[nr.name], nr)
+                for nr in foo_native_descr.relationships
             ],
         )
 
     @pytest.fixture
-    def bar_mapper(self, bar_resource_descr, bar_native_descr, identity_mapping_pair):
+    def bar_mapper(
+        self,
+        bar_resource_descr,
+        bar_native_descr,
+        foo_resource_descr,
+        foo_native_descr,
+        identity_mapping_pair,
+    ):
         from ..mapper import (
             Direction,
             Mapper,
@@ -221,22 +347,29 @@ class TestMapper:
             bar_native_descr,
             attribute_mappings=[
                 ToOneAttributeMapping[Foo](
-                    serde_side=ra,
+                    serde_side=bar_resource_descr.attributes[na.name],
                     native_side=na,
                     to_serde_factory=identity_mapping_pair[0],
                     to_native_factory=identity_mapping_pair[1],
                     direction=Direction.BIDI,
                 )
-                for ra, na in zip(bar_resource_descr.attributes, bar_native_descr.attributes)
+                for na in bar_native_descr.attributes
             ],
             relationship_mappings=[
-                RelationshipMapping(rd, nd)
-                for rd, nd in zip(bar_resource_descr.relationships, bar_native_descr.relationships)
+                RelationshipMapping(bar_resource_descr.relationships[nr.name], nr)
+                for nr in bar_native_descr.relationships
             ],
         )
 
     @pytest.fixture
-    def baz_mapper(self, baz_resource_descr, baz_native_descr, identity_mapping_pair):
+    def baz_mapper(
+        self,
+        baz_resource_descr,
+        baz_native_descr,
+        foo_resource_descr,
+        foo_native_descr,
+        identity_mapping_pair,
+    ):
         from ..mapper import (
             Direction,
             Mapper,
@@ -249,17 +382,17 @@ class TestMapper:
             baz_native_descr,
             attribute_mappings=[
                 ToOneAttributeMapping[Foo](
-                    serde_side=ra,
+                    serde_side=baz_resource_descr.attributes[na.name],
                     native_side=na,
                     to_serde_factory=identity_mapping_pair[0],
                     to_native_factory=identity_mapping_pair[1],
                     direction=Direction.BIDI,
                 )
-                for ra, na in zip(baz_resource_descr.attributes, baz_native_descr.attributes)
+                for na in baz_native_descr.attributes
             ],
             relationship_mappings=[
-                RelationshipMapping(rd, nd)
-                for rd, nd in zip(baz_resource_descr.relationships, baz_native_descr.relationships)
+                RelationshipMapping(baz_resource_descr.relationships[nr.name], nr)
+                for nr in baz_native_descr.relationships
             ],
         )
 
@@ -305,18 +438,8 @@ class TestMapper:
         return DummyToNativeContext()
 
     @pytest.fixture
-    def identity_mapping_pair(self):
-        from ..mapper import ToNativeContext, ToSerdeContext
-
-        def to_serde_identity_mapping(ctx: ToSerdeContext, value: typing.Any) -> AttributeValue:
-            return typing.cast(AttributeValue, value)
-
-        def to_native_identity_mapping(
-            ctx: ToNativeContext, source: Source, value: AttributeValue
-        ) -> typing.Any:
-            return value
-
-        return to_serde_identity_mapping, to_native_identity_mapping
+    def target(self, foo_mapper):
+        return foo_mapper
 
     def test_create_from_serde(
         self,
@@ -479,7 +602,13 @@ class TestMapper:
 
     @pytest.fixture
     def dummy_to_serde_context(
-        self, target, bar_mapper, bar_native_descr, baz_mapper, baz_native_descr
+        self,
+        foo_mapper,
+        foo_native_descr,
+        bar_mapper,
+        bar_native_descr,
+        baz_mapper,
+        baz_native_descr,
     ):
         from ..mapper import (
             AttributeMapping,
@@ -553,6 +682,8 @@ class TestMapper:
                     return bar_mapper
                 elif descr is baz_native_descr:
                     return baz_mapper
+                elif descr is foo_native_descr:
+                    return foo_mapper
                 else:
                     raise AssertionError()
 
@@ -566,7 +697,7 @@ class TestMapper:
                 dest_available: bool,
                 dest: typing.Optional[typing.Any],
             ) -> None:
-                pass
+                return
 
             def to_many_relationship_visited(
                 self,
@@ -577,14 +708,23 @@ class TestMapper:
                 native: typing.Any,
                 dest: typing.Optional[typing.Iterable[typing.Any]],
             ) -> None:
-                pass
+                return
+
+            def native_visited_pre(
+                self,
+                mapper: "Mapper",
+                native: typing.Any,
+                as_rel_ref: bool,
+            ) -> None:
+                return
 
             def native_visited(
                 self,
                 mapper: "Mapper",
                 native: typing.Any,
+                as_rel_ref: bool,
             ) -> None:
-                pass
+                return
 
             def __init__(self, select_relationship: SelectRelationship):
                 self._select_relationship = select_relationship
@@ -794,6 +934,124 @@ class TestMapper:
             ),
         )
 
+    def test_build_serde_collection_traversing(self, baz_mapper, dummy_to_serde_context):
+        from ..mapper import RelationshipPart
+
+        builder = CollectionDocumentBuilder()
+        bazs = [
+            Baz(f=1, g="2", id="1"),
+            Baz(f=3, g="4", id="2"),
+        ]
+        bars = [
+            Bar(
+                d="1",
+                e=2,
+                id="1",
+                baz=bazs[0],
+            ),
+            Bar(
+                d="1",
+                e=2,
+                id="2",
+                baz=bazs[1],
+            ),
+        ]
+        foo = Foo(
+            a="1",
+            b=2,
+            c=3,
+            id="1",
+            bar=bars[0],
+            bazs=bazs,
+        )
+        assert bazs[0].foo is foo
+        assert bazs[1].foo is foo
+        assert bazs[0].bar.baz is bazs[0]
+        assert bazs[1].bar.baz is bazs[1]
+
+        baz_mapper.build_serde_collection(
+            dummy_to_serde_context(lambda _: RelationshipPart.ALL),
+            builder,
+            bazs,
+        )
+        assert builder() == CollectionDocumentRepr(
+            links=LinksRepr(
+                self_=URL.from_string("/baz/"),
+            ),
+            data=(
+                ResourceRepr(
+                    type="baz",
+                    id="1",
+                    links=None,
+                    attributes=(
+                        ("f", 1),
+                        ("g", "2"),
+                    ),
+                    relationships=(
+                        (
+                            "bar",
+                            LinkageRepr(
+                                links=LinksRepr(
+                                    self_=URL.from_string("/baz/1/@bar/"),
+                                ),
+                                data=ResourceIdRepr(
+                                    type="bar",
+                                    id="1",
+                                ),
+                            ),
+                        ),
+                        (
+                            "foo",
+                            LinkageRepr(
+                                links=LinksRepr(
+                                    self_=URL.from_string("/baz/1/@foo/"),
+                                ),
+                                data=ResourceIdRepr(
+                                    type="foo",
+                                    id="1",
+                                ),
+                            ),
+                        ),
+                    ),
+                ),
+                ResourceRepr(
+                    type="baz",
+                    id="2",
+                    links=None,
+                    attributes=(
+                        ("f", 3),
+                        ("g", "4"),
+                    ),
+                    relationships=(
+                        (
+                            "bar",
+                            LinkageRepr(
+                                links=LinksRepr(
+                                    self_=URL.from_string("/baz/2/@bar/"),
+                                ),
+                                data=ResourceIdRepr(
+                                    type="bar",
+                                    id="2",
+                                ),
+                            ),
+                        ),
+                        (
+                            "foo",
+                            LinkageRepr(
+                                links=LinksRepr(
+                                    self_=URL.from_string("/baz/2/@foo/"),
+                                ),
+                                data=ResourceIdRepr(
+                                    type="foo",
+                                    id="1",
+                                ),
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+        )
+
     def test_build_serde_omit_relationship(
         self,
         target,
@@ -815,6 +1073,7 @@ class TestMapper:
                 d="1",
                 e=2,
                 id="1",
+                baz=None,
             ),
             bazs=[
                 Baz(f=1, g="2", id="1"),
@@ -1306,3 +1565,663 @@ class TestMapper:
             (ResourceIdRepr(type="baz", id="2"), False),
             (ResourceIdRepr(type="baz", id="3"), False),
         ]
+
+
+class TestMapperContext(TestMapperBase):
+    @pytest.fixture
+    def dummy_driver(self):
+        from ..mapper import Driver, Mapper
+
+        class DummyDriver(Driver):
+            def get_serde_identity_by_native(self, mapper: Mapper, native: typing.Any) -> str:
+                return native.id if native is not None else None
+
+            def get_native_identity_by_serde(
+                self, mapper: Mapper, serde: typing.Union[ResourceRepr, ResourceIdRepr]
+            ) -> typing.Any:
+                return serde.id
+
+        return DummyDriver()
+
+    @pytest.fixture
+    def dummy_serde_type_resolver(self, foo_resource_descr, bar_resource_descr, baz_resource_descr):
+        from ..mapper import Mapper, SerdeTypeResolver
+
+        class DummySerdeTypeResolver(SerdeTypeResolver):
+            def query_type_name_by_descriptor(self, descr: ResourceDescriptor) -> str:
+                return descr.name
+
+            def query_descriptor_by_type_name(self, name: str) -> ResourceDescriptor:
+                if foo_resource_descr.name == name:
+                    return foo_resource_descr
+                elif bar_resource_descr.name == name:
+                    return bar_resource_descr
+                elif baz_resource_descr.name == name:
+                    return baz_resource_descr
+                else:
+                    raise AssertionError()
+
+            def mapper_added(self, mapper: Mapper) -> None:
+                pass
+
+        return DummySerdeTypeResolver()
+
+    @pytest.fixture
+    def dummy_endpoint_resolver(self):
+        from ..mapper import EndpointResolver, Mapper, PaginatedEndpoint, ToSerdeContext
+
+        class DummyEndpointResolver(EndpointResolver):
+            def resolve_singleton_endpoint(
+                self, ctx: ToSerdeContext, mapper: Mapper, native: typing.Any
+            ) -> typing.Optional[URL]:
+                return None
+
+            def resolve_collection_endpoint(
+                self,
+                ctx: ToSerdeContext,
+                mapper: Mapper,
+                natives: typing.Iterable[typing.Any],
+            ) -> typing.Optional[PaginatedEndpoint]:
+                return None
+
+            def resolve_to_one_relationship_endpoint(
+                self,
+                ctx: ToSerdeContext,
+                mapper: Mapper,
+                native_descr: NativeToOneRelationshipDescriptor,
+                rel_descr: ResourceToOneRelationshipDescriptor,
+                native: typing.Any,
+            ) -> typing.Optional[URL]:
+                return None
+
+            def resolve_to_many_relationship_endpoint(
+                self,
+                ctx: ToSerdeContext,
+                mapper: Mapper,
+                native_descr: NativeToManyRelationshipDescriptor,
+                rel_descr: ResourceToManyRelationshipDescriptor,
+                native: typing.Any,
+            ) -> typing.Optional[PaginatedEndpoint]:
+                return None
+
+        return DummyEndpointResolver()
+
+    @pytest.fixture
+    def mapper_context(self, dummy_driver, dummy_serde_type_resolver, dummy_endpoint_resolver):
+        from ..mapper import MapperContext
+
+        return MapperContext(
+            driver=dummy_driver,
+            serde_type_resolver=dummy_serde_type_resolver,
+            endpoint_resolver=dummy_endpoint_resolver,
+        )
+
+    @pytest.fixture
+    def foo_mapper(
+        self, mapper_context, foo_resource_descr, foo_native_descr, identity_mapping_pair
+    ):
+        from ..mapper import Direction, RelationshipMapping, ToOneAttributeMapping
+
+        return mapper_context.create_mapper(
+            foo_resource_descr,
+            foo_native_descr,
+            attribute_mappings=[
+                ToOneAttributeMapping[Foo](
+                    serde_side=foo_resource_descr.attributes[na.name],
+                    native_side=na,
+                    to_serde_factory=identity_mapping_pair[0],
+                    to_native_factory=identity_mapping_pair[1],
+                    direction=Direction.BIDI,
+                )
+                for na in foo_native_descr.attributes
+            ],
+            relationship_mappings=[
+                RelationshipMapping(foo_resource_descr.relationships[nr.name], nr)
+                for nr in foo_native_descr.relationships
+            ],
+        )
+
+    @pytest.fixture
+    def bar_mapper(
+        self,
+        mapper_context,
+        bar_resource_descr,
+        bar_native_descr,
+        foo_resource_descr,
+        foo_native_descr,
+        identity_mapping_pair,
+    ):
+        from ..mapper import Direction, RelationshipMapping, ToOneAttributeMapping
+
+        return mapper_context.create_mapper(
+            bar_resource_descr,
+            bar_native_descr,
+            attribute_mappings=[
+                ToOneAttributeMapping[Foo](
+                    serde_side=bar_resource_descr.attributes[na.name],
+                    native_side=na,
+                    to_serde_factory=identity_mapping_pair[0],
+                    to_native_factory=identity_mapping_pair[1],
+                    direction=Direction.BIDI,
+                )
+                for na in bar_native_descr.attributes
+            ],
+            relationship_mappings=[
+                RelationshipMapping(bar_resource_descr.relationships[nr.name], nr)
+                for nr in bar_native_descr.relationships
+            ],
+        )
+
+    @pytest.fixture
+    def baz_mapper(
+        self,
+        mapper_context,
+        baz_resource_descr,
+        baz_native_descr,
+        foo_resource_descr,
+        foo_native_descr,
+        identity_mapping_pair,
+    ):
+        from ..mapper import Direction, RelationshipMapping, ToOneAttributeMapping
+
+        return mapper_context.create_mapper(
+            baz_resource_descr,
+            baz_native_descr,
+            attribute_mappings=[
+                ToOneAttributeMapping[Foo](
+                    serde_side=baz_resource_descr.attributes[na.name],
+                    native_side=na,
+                    to_serde_factory=identity_mapping_pair[0],
+                    to_native_factory=identity_mapping_pair[1],
+                    direction=Direction.BIDI,
+                )
+                for na in baz_native_descr.attributes
+            ],
+            relationship_mappings=[
+                RelationshipMapping(baz_resource_descr.relationships[nr.name], nr)
+                for nr in baz_native_descr.relationships
+            ],
+        )
+
+    def test_build_serde_collection_traversing_no_constraint(
+        self, mapper_context, foo_mapper, bar_mapper, baz_mapper
+    ):
+        from ..mapper import (
+            Mapper,
+            MapperContext,
+            RelationshipMapping,
+            RelationshipPart,
+            ToSerdeContext,
+        )
+
+        bazs = [
+            Baz(f=1, g="2", id="1"),
+            Baz(f=3, g="4", id="2"),
+        ]
+        bars = [
+            Bar(
+                d="1",
+                e=2,
+                id="1",
+                baz=bazs[0],
+            ),
+            Bar(
+                d="3",
+                e=4,
+                id="2",
+                baz=bazs[1],
+            ),
+        ]
+        foo = Foo(
+            a="1",
+            b=2,
+            c=3,
+            id="1",
+            bar=bars[0],
+            bazs=bazs,
+        )
+        assert all(baz.foo is foo for baz in bazs)
+        assert all(baz.bar.baz is baz for baz in bazs)
+
+        def _include_filter(
+            mctx: MapperContext,
+            sctx: ToSerdeContext,
+            native_side: NativeRelationshipDescriptor,
+            serde_side: ResourceRelationshipDescriptor,
+            mapper: Mapper,
+            dest_mapper: Mapper,
+            native: typing.Any,
+        ) -> bool:
+            return True
+
+        def _select_relationship(rel: RelationshipMapping) -> RelationshipPart:
+            return RelationshipPart.ALL
+
+        builder = mapper_context.build_serde_collection(
+            Baz,
+            bazs,
+            select_relationship=_select_relationship,
+            include_filter=_include_filter,
+        )
+
+        assert builder() == CollectionDocumentRepr(
+            links=None,
+            data=(
+                ResourceRepr(
+                    type="baz",
+                    id="1",
+                    links=None,
+                    attributes=(
+                        ("f", 1),
+                        ("g", "2"),
+                    ),
+                    relationships=(
+                        (
+                            "bar",
+                            LinkageRepr(
+                                links=None,
+                                data=ResourceIdRepr(
+                                    type="bar",
+                                    id="1",
+                                ),
+                            ),
+                        ),
+                        (
+                            "foo",
+                            LinkageRepr(
+                                links=None,
+                                data=ResourceIdRepr(
+                                    type="foo",
+                                    id="1",
+                                ),
+                            ),
+                        ),
+                    ),
+                ),
+                ResourceRepr(
+                    type="baz",
+                    id="2",
+                    links=None,
+                    attributes=(
+                        ("f", 3),
+                        ("g", "4"),
+                    ),
+                    relationships=(
+                        (
+                            "bar",
+                            LinkageRepr(
+                                links=None,
+                                data=ResourceIdRepr(
+                                    type="bar",
+                                    id="2",
+                                ),
+                            ),
+                        ),
+                        (
+                            "foo",
+                            LinkageRepr(
+                                links=None,
+                                data=ResourceIdRepr(
+                                    type="foo",
+                                    id="1",
+                                ),
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+            included=(
+                ResourceRepr(
+                    type="bar",
+                    id="1",
+                    links=None,
+                    attributes=(
+                        ("d", "1"),
+                        ("e", 2),
+                    ),
+                    relationships=[
+                        (
+                            "baz",
+                            LinkageRepr(
+                                links=None,
+                                data=ResourceIdRepr(
+                                    type="baz",
+                                    id="1",
+                                ),
+                            ),
+                        ),
+                        (
+                            "foo",
+                            LinkageRepr(
+                                links=None,
+                                data=ResourceIdRepr(
+                                    type="foo",
+                                    id="1",
+                                ),
+                            ),
+                        ),
+                    ],
+                ),
+                ResourceRepr(
+                    type="foo",
+                    id="1",
+                    attributes=[
+                        ("a", "1"),
+                        ("b", 2),
+                        ("c", 3),
+                    ],
+                    relationships=[
+                        (
+                            "bar",
+                            LinkageRepr(
+                                links=None,
+                                data=ResourceIdRepr(
+                                    type="bar",
+                                    id="1",
+                                ),
+                            ),
+                        ),
+                        (
+                            "bazs",
+                            LinkageRepr(
+                                links=None,
+                                data=(
+                                    ResourceIdRepr(
+                                        type="baz",
+                                        id="1",
+                                    ),
+                                    ResourceIdRepr(
+                                        type="baz",
+                                        id="2",
+                                    ),
+                                ),
+                            ),
+                        ),
+                    ],
+                ),
+                ResourceRepr(
+                    type="bar",
+                    id="2",
+                    links=None,
+                    attributes=(
+                        ("d", "3"),
+                        ("e", 4),
+                    ),
+                    relationships=[
+                        (
+                            "baz",
+                            LinkageRepr(
+                                links=None,
+                                data=ResourceIdRepr(
+                                    type="baz",
+                                    id="2",
+                                ),
+                            ),
+                        ),
+                        (
+                            "foo",
+                            LinkageRepr(
+                                links=None,
+                                data=None,
+                            ),
+                        ),
+                    ],
+                ),
+            ),
+        )
+
+    def test_build_serde_collection_traversing_backrefs_with_constraints(
+        self, mapper_context, foo_mapper, bar_mapper, baz_mapper
+    ):
+        from ..mapper import (
+            Mapper,
+            MapperContext,
+            RelationshipMapping,
+            RelationshipPart,
+            ToSerdeContext,
+        )
+
+        bazs = [
+            Baz(f=1, g="2", id="1"),
+            Baz(f=3, g="4", id="2"),
+            Baz(f=5, g="6", id="3"),
+        ]
+        bars = [
+            Bar(
+                d="1",
+                e=2,
+                id="1",
+                baz=bazs[0],
+            ),
+            Bar(
+                d="3",
+                e=4,
+                id="2",
+                baz=bazs[1],
+            ),
+            Bar(
+                d="5",
+                e=6,
+                id="3",
+                baz=bazs[2],
+            ),
+        ]
+        foo = Foo(
+            a="1",
+            b=2,
+            c=3,
+            id="1",
+            bar=bars[0],
+            bazs=bazs,
+        )
+        assert all(baz.foo is foo for baz in bazs)
+        assert all(baz.bar.baz is baz for baz in bazs)
+
+        def _include_filter(
+            mctx: MapperContext,
+            sctx: ToSerdeContext,
+            native_side: NativeRelationshipDescriptor,
+            serde_side: ResourceRelationshipDescriptor,
+            mapper: Mapper,
+            dest_mapper: Mapper,
+            native: typing.Any,
+        ) -> bool:
+            return dest_mapper is not foo_mapper
+
+        def _select_relationship(rel: RelationshipMapping) -> RelationshipPart:
+            return RelationshipPart.ALL
+
+        builder = mapper_context.build_serde_collection(
+            Bar,
+            bars,
+            select_relationship=_select_relationship,
+            include_filter=_include_filter,
+        )
+
+        assert builder() == CollectionDocumentRepr(
+            links=None,
+            data=(
+                ResourceRepr(
+                    type="bar",
+                    id="1",
+                    links=None,
+                    attributes=(
+                        ("d", "1"),
+                        ("e", 2),
+                    ),
+                    relationships=[
+                        (
+                            "baz",
+                            LinkageRepr(
+                                links=None,
+                                data=ResourceIdRepr(
+                                    type="baz",
+                                    id="1",
+                                ),
+                            ),
+                        ),
+                        (
+                            "foo",
+                            LinkageRepr(
+                                links=None,
+                                data=ResourceIdRepr(
+                                    type="foo",
+                                    id="1",
+                                ),
+                            ),
+                        ),
+                    ],
+                ),
+                ResourceRepr(
+                    type="bar",
+                    id="2",
+                    links=None,
+                    attributes=(
+                        ("d", "3"),
+                        ("e", 4),
+                    ),
+                    relationships=[
+                        (
+                            "baz",
+                            LinkageRepr(
+                                links=None,
+                                data=ResourceIdRepr(
+                                    type="baz",
+                                    id="2",
+                                ),
+                            ),
+                        ),
+                        (
+                            "foo",
+                            LinkageRepr(
+                                links=None,
+                                data=None,
+                            ),
+                        ),
+                    ],
+                ),
+                ResourceRepr(
+                    type="bar",
+                    id="3",
+                    links=None,
+                    attributes=(
+                        ("d", "5"),
+                        ("e", 6),
+                    ),
+                    relationships=[
+                        (
+                            "baz",
+                            LinkageRepr(
+                                links=None,
+                                data=ResourceIdRepr(
+                                    type="baz",
+                                    id="3",
+                                ),
+                            ),
+                        ),
+                        (
+                            "foo",
+                            LinkageRepr(
+                                links=None,
+                                data=None,
+                            ),
+                        ),
+                    ],
+                ),
+            ),
+            included=(
+                ResourceRepr(
+                    type="baz",
+                    id="1",
+                    links=None,
+                    attributes=(
+                        ("f", 1),
+                        ("g", "2"),
+                    ),
+                    relationships=(
+                        (
+                            "bar",
+                            LinkageRepr(
+                                links=None,
+                                data=ResourceIdRepr(
+                                    type="bar",
+                                    id="1",
+                                ),
+                            ),
+                        ),
+                        (
+                            "foo",
+                            LinkageRepr(
+                                links=None,
+                                data=ResourceIdRepr(
+                                    type="foo",
+                                    id="1",
+                                ),
+                            ),
+                        ),
+                    ),
+                ),
+                ResourceRepr(
+                    type="baz",
+                    id="2",
+                    links=None,
+                    attributes=(
+                        ("f", 3),
+                        ("g", "4"),
+                    ),
+                    relationships=(
+                        (
+                            "bar",
+                            LinkageRepr(
+                                links=None,
+                                data=ResourceIdRepr(
+                                    type="bar",
+                                    id="2",
+                                ),
+                            ),
+                        ),
+                        (
+                            "foo",
+                            LinkageRepr(
+                                links=None,
+                                data=ResourceIdRepr(
+                                    type="foo",
+                                    id="1",
+                                ),
+                            ),
+                        ),
+                    ),
+                ),
+                ResourceRepr(
+                    type="baz",
+                    id="3",
+                    links=None,
+                    attributes=(
+                        ("f", 5),
+                        ("g", "6"),
+                    ),
+                    relationships=(
+                        (
+                            "bar",
+                            LinkageRepr(
+                                links=None,
+                                data=ResourceIdRepr(
+                                    type="bar",
+                                    id="3",
+                                ),
+                            ),
+                        ),
+                        (
+                            "foo",
+                            LinkageRepr(
+                                links=None,
+                                data=ResourceIdRepr(
+                                    type="foo",
+                                    id="1",
+                                ),
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+        )

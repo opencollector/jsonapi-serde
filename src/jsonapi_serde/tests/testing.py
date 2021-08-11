@@ -369,8 +369,8 @@ class PlainUpdater(PlainBuilderBase, NativeUpdater):
 
 class PlainNativeDescriptor(NativeDescriptor):
     _class_: type
-    _attributes: typing.Sequence[NativeAttributeDescriptor]
-    _relationships: typing.Sequence[NativeRelationshipDescriptor]
+    _attributes: typing.MutableSequence[NativeAttributeDescriptor]
+    _relationships: typing.MutableSequence[NativeRelationshipDescriptor]
 
     @property
     def class_(self) -> type:
@@ -408,12 +408,12 @@ class PlainNativeDescriptor(NativeDescriptor):
     def __init__(
         self,
         class_: type,
-        attributes: typing.Sequence[NativeAttributeDescriptor] = (),
-        relationships: typing.Sequence[NativeRelationshipDescriptor] = (),
+        attributes: typing.Iterable[NativeAttributeDescriptor] = (),
+        relationships: typing.Iterable[NativeRelationshipDescriptor] = (),
     ):
         self._class_ = class_
-        self._attributes = attributes
-        self._relationships = relationships
+        self._attributes = list(attributes)
+        self._relationships = list(relationships)
 
 
 class PlainInfoExtractor(InfoExtractor):

@@ -252,13 +252,34 @@ class ToSerdeContext(metaclass=abc.ABCMeta):
         ...  # pragma: nocover
 
     @abc.abstractmethod
+    def native_visited_pre(
+        self,
+        mapper: "Mapper",
+        native: typing.Any,
+        as_rel_ref: bool,
+    ) -> None:
+        """
+        Called when a native object is being visited during serialization.
+
+        :param Mapper mapper: The mapper object that takes care of the native object.
+        :param Any native: The native object in question.
+        :param bool as_rel_ref: Given :py:const:`True` if the native object is being visited for relationship reference.
+        """
+        ...  # pragma: nocover
+
+    @abc.abstractmethod
     def native_visited(
         self,
         mapper: "Mapper",
         native: typing.Any,
+        as_rel_ref: bool,
     ) -> None:
         """
-        Called every time when a native object is visited during serialization.
+        Called every time when a native object has been visited during serialization.
+
+        :param Mapper mapper: The mapper object that takes care of the native object.
+        :param Any native: The native object in question.
+        :param bool as_rel_ref: Given :py:const:`True` if the native object has been visited for relationship reference.
         """
         ...  # pragma: nocover
 
@@ -1172,6 +1193,7 @@ class Mapper(typing.Generic[Tm]):
             dest_available = True
             _builder = builder.set()
             if dest is not None:
+                ctx.native_visited_pre(self, dest, True)
                 dest_mapper._build_serde_rel(site_ctx, _builder, dest)
         ctx.to_one_relationship_visited(
             native_side, serde_side, self, dest_mapper, native, dest_available, dest
@@ -1199,9 +1221,10 @@ class Mapper(typing.Generic[Tm]):
                     last=ep.last,
                 )
         dest_mapper = ctx.query_mapper_by_native(native_side.destination)
-        dest: typing.Optional[typing.Iterable[typing.Any]] = None
+        dest = native_side.fetch_related(native)
+        for n in dest:
+            ctx.native_visited_pre(self, n, True)
         if parts & RelationshipPart.DATA:
-            dest = native_side.fetch_related(native)
             for n in dest:
                 dest_mapper._build_serde_rel(site_ctx, builder.next(), n)
             builder.done()
@@ -1287,7 +1310,7 @@ class Mapper(typing.Generic[Tm]):
         builder.id = self.get_serde_identity_by_native(ctx, native)
         for sbf in self.serde_builder_filters:
             sbf(site_ctx, builder)
-        ctx.native_visited(self, native)
+        ctx.native_visited(self, native, True)
 
     def _build_serde(
         self,
@@ -1297,6 +1320,7 @@ class Mapper(typing.Generic[Tm]):
     ) -> None:
         ctx = site_ctx.to_serde_ctx
         assert ctx is not None
+        ctx.native_visited_pre(self, native, False)
         builder.type = ctx.query_type_name_by_descriptor(self.resource_descr)
         builder.id = self.get_serde_identity_by_native(ctx, native)
         ep = ctx.resolve_singleton_endpoint(self, native)
@@ -1313,7 +1337,7 @@ class Mapper(typing.Generic[Tm]):
         for sbf in self.serde_builder_filters:
             sbf(site_ctx, builder)
 
-        ctx.native_visited(self, native)
+        ctx.native_visited(self, native, False)
 
     def build_serde(
         self,
@@ -1340,6 +1364,8 @@ class Mapper(typing.Generic[Tm]):
                 first=ep.first,
                 last=ep.last,
             )
+        for native in natives:
+            ctx.native_visited_pre(self, native, False)
         for native in natives:
             inner_builder = builder.next()
             self._build_serde(site_ctx, inner_builder, native)
@@ -1595,17 +1621,22 @@ class MapperContext:
                 return
             if not dest_available:
                 dest = native_side.fetch_related(native)
-            if not self.mark_traversed(dest):
+            if dest is None:
                 return
-            if self.mark_included(dest) and self.should_include(
+            if dest not in self._included and self.should_include(
                 native_side, serde_side, mapper, dest_mapper, dest
             ):
+                self._included.add(dest)
                 _builder = self.doc_builder.next_included()
                 dest_mapper.build_serde(self, _builder, dest)
-            elif dest is not None and (
-                self.traverse_relationship is None
-                or self.traverse_relationship(
-                    self.outer_ctx, native_side, serde_side, mapper, dest_mapper, native, dest
+            if (
+                dest is not None
+                and self.mark_traversed(dest)
+                and (
+                    self.traverse_relationship is None
+                    or self.traverse_relationship(
+                        self.outer_ctx, native_side, serde_side, mapper, dest_mapper, native, dest
+                    )
                 )
             ):
                 self._traverse_relationships(dest_mapper, dest)
@@ -1621,38 +1652,43 @@ class MapperContext:
         ) -> None:
             if dest is None:
                 dest = native_side.fetch_related(native)
+            if dest is None:
+                return
             for _native in dest:
                 if _native is None:
                     continue
-                if not self.mark_traversed(_native):
-                    continue
-                if self.mark_included(_native) and self.should_include(
-                    native_side, serde_side, mapper, dest_mapper, _native
+                if (
+                    _native is not None
+                    and _native not in self._included
+                    and self.should_include(native_side, serde_side, mapper, dest_mapper, _native)
                 ):
+                    self._included.add(_native)
                     _builder = self.doc_builder.next_included()
                     dest_mapper.build_serde(self, _builder, _native)
-                elif _native is not None and (
-                    self.traverse_relationship is None
-                    or self.traverse_relationship(
-                        self.outer_ctx,
-                        native_side,
-                        serde_side,
-                        mapper,
-                        dest_mapper,
-                        native,
-                        _native,
+                if (
+                    _native is not None
+                    and self.mark_traversed(_native)
+                    and (
+                        self.traverse_relationship is None
+                        or self.traverse_relationship(
+                            self.outer_ctx,
+                            native_side,
+                            serde_side,
+                            mapper,
+                            dest_mapper,
+                            native,
+                            _native,
+                        )
                     )
                 ):
                     self._traverse_relationships(dest_mapper, _native)
 
-        def native_visited(self, mapper: Mapper, native: typing.Any) -> None:
-            pass
+        def native_visited_pre(self, mapper: Mapper, native: typing.Any, as_rel_ref: bool) -> None:
+            if not as_rel_ref:
+                self._included.add(native)
 
-        def mark_included(self, native: typing.Any) -> bool:
-            if native in self._included:
-                return False
-            self._included.add(native)
-            return True
+        def native_visited(self, mapper: Mapper, native: typing.Any, as_rel_ref: bool) -> None:
+            return
 
         def mark_traversed(self, native: typing.Any) -> bool:
             if native in self._traversed:
